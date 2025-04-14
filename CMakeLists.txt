@@ -15,6 +15,7 @@ find_package(PostgreSQL REQUIRED)
 find_package(Boost COMPONENTS program_options date_time REQUIRED)
 find_package(MiniSEED REQUIRED)
 find_package(SEEDLink REQUIRED)
+find_package(Earthworm)
 
 configure_file(${CMAKE_SOURCE_DIR}/src/private/version.hpp.in
                ${CMAKE_SOURCE_DIR}/include/uWaveServer/version.hpp)
@@ -28,11 +29,15 @@ set(LIBRARY_SRC
     src/database/client.cpp
     src/database/connection/postgresql.cpp)
 if (${SEEDLINK_FOUND})
-   message("Found SEEDLink")
+   message("Using SEEDLink")
    set(LIBRARY_SRC ${LIBRARY_SRC}
        src/dataClient/seedLink.cpp
        src/dataClient/seedLinkOptions.cpp)
 endif()
+#if (${Earthworm_FOUND})
+#   message("Using Earthworm")
+#   target_compile_definitions(uWaveServer WITH_EARTHWORM)
+#endif()
 
 set(BUILD_SHARED_LIBS YES)
 add_library(uWaveServer ${LIBRARY_SRC})
@@ -51,8 +56,13 @@ target_include_directories(uWaveServer
 if (${SEEDLINK_FOUND})
    target_link_libraries(uWaveServer PRIVATE ${SEEDLINK_LIBRARY})
    target_include_directories(uWaveServer PRIVATE ${SEEDLINK_INCLUDE_DIR})
+   target_compile_definitions(uWaveServer PRIVATE WITH_SEEDLINK)
 endif()
-
+if (${Earthworm_FOUND})
+#   target_link_libraries(uWaveServer PRIVATE ${EARTHWORM_UTILITY_LIBRARY} ${EARTHWORM_MT_LIBRARY})
+#   target_include_directories(uWaveServer PRIVATE ${EARTHWORM_INCLUDE_DIR})
+    target_compile_definitions(uWaveServer PRIVATE WITH_EARTHWORM)
+endif()
 
 add_executable(uwsDataLoader
                src/main.cpp)
