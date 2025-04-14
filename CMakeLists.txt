@@ -22,6 +22,7 @@ configure_file(${CMAKE_SOURCE_DIR}/src/private/version.hpp.in
 set(LIBRARY_SRC
     src/dataClient/dataClient.cpp
     src/dataClient/seedLink.cpp
+    src/dataClient/streamSelector.cpp
     src/deduplicator.cpp
     src/packet.cpp
     src/version.cpp
