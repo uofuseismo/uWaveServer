@@ -11,7 +11,8 @@ endif()
 
 find_package(spdlog REQUIRED)
 find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
-find_package(Boost COMPONENTS program_options REQUIRED)
+find_package(PostgreSQL REQUIRED)
+find_package(Boost COMPONENTS program_options date_time REQUIRED)
 find_package(MiniSEED REQUIRED)
 find_package(SEEDLink REQUIRED)
 
@@ -34,9 +35,9 @@ set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD_REQUIRED YES
                       CXX_EXTENSIONS NO)
 target_link_libraries(uWaveServer
-                      PRIVATE spdlog::spdlog SOCI::Core SOCI::PostgreSQL ${SEEDLINK_LIBRARY} ${MINISEED_LIBRARY})
+                      PRIVATE spdlog::spdlog SOCI::soci_core SOCI::soci_postgresql ${SEEDLINK_LIBRARY} ${MINISEED_LIBRARY})
 target_include_directories(uWaveServer
-                           PRIVATE ${MINISEED_INCLUDE_DIR} ${SEEDLINK_INCLUDE_DIR}
+                           PRIVATE ${MINISEED_INCLUDE_DIR} ${SEEDLINK_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                            PUBLIC $<INSTALL_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>)
