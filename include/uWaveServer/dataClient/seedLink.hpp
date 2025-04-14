@@ -12,6 +12,7 @@ class SEEDLink : public IDataClient
 public:
     explicit SEEDLink(const SEEDLinkOptions &options);
     void stop() override;
+    [[nodiscard]] Type getType() const noexcept final;
 private:
     class SEEDLinkImpl;
     std::unique_ptr<SEEDLinkImpl> pImpl;

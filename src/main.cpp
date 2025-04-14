@@ -11,7 +11,9 @@
 
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
+#include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
+#include "uWaveServer/dataClient/streamSelector.hpp"
 #include "uWaveServer/database/client.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
@@ -64,6 +66,7 @@ int getIntegerEnvironmentVariable(const std::string &variable, int defaultValue)
 
 struct ProgramOptions
 {
+    std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
     std::string applicationName{"uwsDataLoader"};
     std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
     std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
@@ -242,8 +245,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Create connections
-
     // Create the database connection
     UWaveServer::Database::Connection::PostgreSQL databaseConnection;
     try
@@ -270,6 +271,8 @@ int main(int argc, char *argv[])
           + std::string {e.what()});
         return EXIT_FAILURE;
     }
+    // Create the SEEDLink connections
+
     // Initialize the utility that will map from the acquistion to the database 
 
     return EXIT_SUCCESS;
@@ -322,8 +325,6 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
 
-std::cout << "hey" << std::endl;
-
     if (propertyTree.get_optional<std::string> ("SEEDLink.address"))
     {
          
@@ -335,20 +336,77 @@ std::cout << "hey" << std::endl;
             auto clientName = "SEEDLink_" + std::to_string(iClient);
             if (propertyTree.get_optional<std::string> (clientName + ".address"))
             {
+                UWaveServer::DataClient::SEEDLinkOptions clientOptions;
+                auto address = propertyTree.get<std::string> (clientName + ".address");
+                auto port = propertyTree.get<uint16_t> (clientName + ".port", 18000);
+                clientOptions.setAddress(address);
+                clientOptions.setPort(port);
 std::cout << "got telemetry" << std::endl;
-        /*
-        for (int iSelector = 1; iSelector <= 32768; ++iSelector)
-        {
-            std::string selectorName{"Telemetry.SEEDLink.data_selector_"};
-            selectorName = selectorName + std::to_string(iSelector);
-            auto selectorString
-                = propertyTree.get_optional<std::string> (selectorName);
-            if (selectorString)
-            {   
+                for (int iSelector = 1; iSelector <= 32768; ++iSelector)
+                {
+                    std::string selectorName{clientName
+                                           + ".data_selector_"
+                                           + std::to_string(iSelector)};
+                    auto selectorString
+                        = propertyTree.get_optional<std::string> (selectorName);
+                    if (selectorString)
+                    {
+                        std::vector<std::string> splitSelectors;
+                        boost::split(splitSelectors, *selectorString, boost::is_any_of(",|"));
+                        for (const auto &thisSplitSelector : splitSelectors)
+                        {
+                            std::vector<std::string> thisSelector; 
+                            auto splitSelector = thisSplitSelector;
+                            boost::algorithm::trim(splitSelector);
+ 
+                            boost::split(thisSelector, splitSelector, boost::is_any_of(" \t"));
+                            UWaveServer::DataClient::StreamSelector selector;
+                            if (splitSelector.empty())
+                            {
+                                throw std::invalid_argument("Empty selector");
+                            }
+                            // Require a network
+                            boost::algorithm::trim(thisSelector.at(0));
+                            selector.setNetwork(thisSelector.at(0));
+                            if (splitSelector.size() > 1)
+                            {
+                                 boost::algorithm::trim(thisSelector.at(1));
+                                 selector.setStation(thisSelector.at(1));
+                            }
+                            std::string channel{"*"};
+                            std::string locationCode{"??"};
+                            if (splitSelector.size() > 2)
+                            {
+                                boost::algorithm::trim(thisSelector.at(2));
+                                channel = thisSelector.at(2);
+                            }
+                            if (splitSelector.size() > 3)
+                            {
+                                 boost::algorithm::trim(thisSelector.at(3));
+                                 locationCode = thisSelector.at(3);
+                            }
+                            // Data type
+                            UWaveServer::DataClient::StreamSelector::Type dataType{UWaveServer::DataClient::StreamSelector::Type::All};
+                            if (splitSelector.size() > 4)
+                            {
+                                 boost::algorithm::trim(thisSelector.at(4));
+                                 if (thisSelector.at(4) == "D")
+                                 {
+                                     dataType = UWaveServer::DataClient::StreamSelector::Type::Data;
+                                 }
+                                 else if (thisSelector.at(4) == "A")
+                                 {
+                                     dataType = UWaveServer::DataClient::StreamSelector::Type::All;
+                                 }
+                                 // TODO other data types
+                            }
+                            selector.setSelector(channel, locationCode, dataType);
+                            clientOptions.addStreamSelector(selector);
+                        } // Loop on selector split
+                    } // End check on have selector
+                    options.seedLinkOptions.push_back(clientOptions);
+                } // Loop on selectors
             }
-        }
-        */
-             }
         }
     }
     return options;

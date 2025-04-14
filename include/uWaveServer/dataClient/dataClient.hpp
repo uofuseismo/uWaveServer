@@ -17,6 +17,11 @@ namespace UWaveServer::DataClient
 class IDataClient
 {
 public:
+    enum Type
+    {
+       SEEDLink
+    };
+public:
     /// @brief Constructor.
     IDataClient();
     /// @brief Destructor.
@@ -27,6 +32,8 @@ public:
     virtual void start() = 0;
     /// @brief Terminates the acquisition.
     virtual void stop() = 0;
+    /// @result The client type.
+    virtual Type getType() const noexcept = 0;
     /// @result True indicates the client is ready to receive 
     ///         data packets.
     [[nodiscard]] virtual bool isInitialized() const noexcept = 0;

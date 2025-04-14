@@ -9,7 +9,7 @@ namespace UWaveServer::DataClient
 }
 namespace UWaveServer::DataClient
 {
-/// @class SEEDLinkOptions "clientOptions.hpp" "urts/broadcasts/external/seedlink/clientOptions.hpp"
+/// @class SEEDLinkOptions "seedLinkOptions.hpp" "uWaveServer/dataClient/seedLinkOptions.hpp"
 /// @brief Defines the options used by the SEEDLink client.
 /// @copyright Ben Baker (University of Utah) distributed under the MIT license.
 class SEEDLinkOptions
