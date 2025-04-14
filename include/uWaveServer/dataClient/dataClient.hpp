@@ -1,5 +1,5 @@
-#ifndef UWAVE_SERVER_DATA_CLIENT_HPP
-#define UWAVE_SERVER_DATA_CLIENT_HPP
+#ifndef UWAVE_SERVER_DATA_CLIENT_DATA_CLIENT_HPP
+#define UWAVE_SERVER_DATA_CLIENT_DATA_CLIENT_HPP
 #include <vector>
 #include <functional>
 #include <memory>
@@ -7,9 +7,9 @@ namespace UWaveServer
 {
 class Packet;
 };
-namespace UWaveServer
+namespace UWaveServer::DataClient
 {
-/// @class IDataClient "dataClient.hpp" "uWaveServer/dataClient.hpp"
+/// @class IDataClient "dataClient.hpp" "uWaveServer/dataClient/dataClient.hpp"
 /// @brief A data client connects to a data feed e.g., SEEDLink, and then 
 ///        gives the newly acquired data packets to a higher-level 
 ///        function via a callback.

@@ -1,7 +1,7 @@
-#include "uWaveServer/dataClient.hpp"
+#include "uWaveServer/dataClient/dataClient.hpp"
 #include "uWaveServer/packet.hpp"
 
-using namespace UWaveServer;
+using namespace UWaveServer::DataClient;
 
 class IDataClient::IDataClientImpl
 {

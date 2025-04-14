@@ -20,10 +20,10 @@ configure_file(${CMAKE_SOURCE_DIR}/src/private/version.hpp.in
                ${CMAKE_SOURCE_DIR}/include/uWaveServer/version.hpp)
 
 set(LIBRARY_SRC
-    src/dataClient.cpp
+    src/dataClient/dataClient.cpp
+    src/dataClient/seedLink.cpp
     src/deduplicator.cpp
     src/packet.cpp
-    src/seedLinkClient.cpp
     src/version.cpp
     src/database/client.cpp
     src/database/connection/postgresql.cpp)
@@ -52,7 +52,7 @@ set_target_properties(uwsDataLoader PROPERTIES
 target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
-                      PRIVATE uWaveServer spdlog::spdlog)# SOCI::Core SOCI::PostgreSQL)
+                      PRIVATE uWaveServer spdlog::spdlog Boost::program_options)# SOCI::Core SOCI::PostgreSQL)
 
 add_executable(uwsWebServer
                src/webServer.cpp)
@@ -63,7 +63,7 @@ set_target_properties(uwsWebServer PROPERTIES
 target_include_directories(uwsWebServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsWebServer
-                      PRIVATE uWaveServer spdlog::spdlog)# SOCI::Core SOCI::PostgreSQL)
+                      PRIVATE uWaveServer spdlog::spdlog Boost::program_options)# SOCI::Core SOCI::PostgreSQL)
 
 ##########################################################################################
 #                                     CPACK Packaging                                    #

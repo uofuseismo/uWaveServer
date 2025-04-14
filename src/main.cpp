@@ -1,13 +1,79 @@
+#include <iostream>
+#include <string>
 #include <thread>
 #include <atomic>
+#include <boost/program_options.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/algorithm/string.hpp>
+#include <filesystem>
 #include <spdlog/spdlog.h>
 
 #include "uWaveServer/packet.hpp"
-#include "uWaveServer/seedLinkClient.hpp"
-#include "uWaveServer/dataClient.hpp"
+#include "uWaveServer/dataClient/seedLink.hpp"
+#include "uWaveServer/dataClient/dataClient.hpp"
 #include "uWaveServer/database/client.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
+
+[[nodiscard]] std::string parseCommandLineOptions(int argc, char *argv[]);
+
+std::string getEnvironmentVariable(const std::string &variable,
+                                   const std::string &defaultValue)
+{
+    std::string result{defaultValue};
+    if (variable.empty()){return result;}
+    try
+    {
+        auto resultPointer = std::getenv(variable.c_str());
+        if (resultPointer)
+        {
+            if (std::strlen(resultPointer) > 0)
+            {
+                result = std::string {resultPointer};
+            }
+        }
+    }
+    catch (...)
+    {
+    }
+    return result;
+}
+
+std::string getEnvironmentVariable(const std::string &variable)
+{ 
+    return ::getEnvironmentVariable(variable, "");
+}
+
+int getIntegerEnvironmentVariable(const std::string &variable, int defaultValue)
+{
+    int result{defaultValue};
+    try
+    {
+        auto stringValue = ::getEnvironmentVariable(variable);
+        if (!stringValue.empty())
+        {
+            result = std::stoi(stringValue.c_str());
+        }
+    }
+    catch (...)
+    {
+    }
+    return result;
+}
+
+struct ProgramOptions
+{
+    std::string applicationName{"uwsDataLoader"};
+    std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
+    std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
+    std::string databaseName{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};
+    std::string databaseHost{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST")};
+    std::string databaseSchema{"ynp"};//::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA")};
+    int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
+};
+
+ProgramOptions parseIniFile(const std::string &iniFile);
 
 class Process
 {
@@ -147,13 +213,35 @@ public:
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepDeduplicatorPacketQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
-    std::vector<UWaveServer::IDataClient> mDataAcquisitionClients;
+    std::vector<UWaveServer::DataClient::IDataClient> mDataAcquisitionClients;
   
     std::atomic<bool> mRunning{true};
 };
 
 int main(int argc, char *argv[]) 
 {
+    // Get the ini file from the command line
+    std::string iniFile;
+    try
+    {
+        iniFile = parseCommandLineOptions(argc, argv);
+    }
+    catch (const std::exception &e)
+    {    
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+    ::ProgramOptions programOptions;
+    try
+    {
+        programOptions = ::parseIniFile(iniFile);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+
     // Create connections
 
     // Create the database connection
@@ -161,34 +249,19 @@ int main(int argc, char *argv[])
     try
     {
         spdlog::info("Creating TimeSeriesDB PostgreSQL database connection...");
-        auto user = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
-        auto password = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
-        auto databaseName = std::string {std::getenv("UWAVE_SERVER_DATABASE_NAME")};
-        std::string host="localhost";
-        try
+        databaseConnection.setUser(programOptions.databaseUser);
+        databaseConnection.setPassword(programOptions.databasePassword);
+        databaseConnection.setAddress(programOptions.databaseHost);
+        databaseConnection.setPort(programOptions.databasePort);
+        databaseConnection.setDatabaseName(programOptions.databaseName);
+	databaseConnection.setApplication(programOptions.applicationName);
+        if (!programOptions.databaseSchema.empty())
         {
-            host = std::string {std::getenv("UWAVE_SERVER_DATABASE_HOST")};
+            databaseConnection.setSchema(programOptions.databaseSchema);
         }
-        catch (...)
-        {
-        }
-        int port = 5432;
-        try 
-        {
-            port = std::stoi(std::getenv("UWAVE_SERVER_DATABASE_PORT"));
-        }
-        catch (...)
-        {
-        }
-        databaseConnection.setUser(user);
-        databaseConnection.setPassword(password);
-        databaseConnection.setAddress(host);
-        databaseConnection.setPort(port);
-        databaseConnection.setDatabaseName(databaseName);
-        databaseConnection.setApplication("uwsDataLoader");
-        databaseConnection.setSchema("ynp");
         databaseConnection.connect(); 
-        spdlog::info("Connected to " + databaseName + " postgresql database!");
+        spdlog::info("Connected to " + programOptions.databaseName
+                   + " postgresql database!");
     }
     catch (const std::exception &e)
     {
@@ -197,6 +270,59 @@ int main(int argc, char *argv[])
           + std::string {e.what()});
         return EXIT_FAILURE;
     }
+    // Initialize the utility that will map from the acquistion to the database 
 
     return EXIT_SUCCESS;
 }
+
+///--------------------------------------------------------------------------///
+///                            Utility Functions                             ///
+///--------------------------------------------------------------------------///
+/// Read the program options from the command line
+std::string parseCommandLineOptions(int argc, char *argv[])
+{
+    std::string iniFile;
+    boost::program_options::options_description desc(R"""(
+The uwsDataLoader maps data from a telemetry to the waveserver database.
+Example usage is
+
+    uwsDataLoader --ini=loader.ini
+
+Allowed options)""");
+    desc.add_options()
+        ("help", "Produces this help message")
+        ("ini",  boost::program_options::value<std::string> (),
+                 "The initialization file for this executable");
+    boost::program_options::variables_map vm;
+    boost::program_options::store(
+        boost::program_options::parse_command_line(argc, argv, desc), vm); 
+    boost::program_options::notify(vm);
+    if (vm.count("help"))
+    {    
+        std::cout << desc << std::endl;
+        return iniFile;
+    }
+    if (vm.count("ini"))
+    {    
+        iniFile = vm["ini"].as<std::string>();
+        if (!std::filesystem::exists(iniFile))
+        {
+            throw std::runtime_error("Initialization file: " + iniFile
+                                   + " does not exist");
+        }
+    }    
+    return iniFile;
+}
+
+ProgramOptions parseIniFile(const std::string &iniFile)
+{   
+    ProgramOptions options;
+    if (!std::filesystem::exists(iniFile)){return options;}
+    // Parse the initialization file
+    boost::property_tree::ptree propertyTree;
+    boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
+
+    return options;
+}
+
+
