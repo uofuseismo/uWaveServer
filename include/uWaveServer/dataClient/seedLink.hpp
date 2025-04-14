@@ -3,9 +3,14 @@
 #include <uWaveServer/dataClient/dataClient.hpp>
 namespace UWaveServer::DataClient
 {
+ class SEEDLinkOptions;
+}
+namespace UWaveServer::DataClient
+{
 class SEEDLink : public IDataClient
 {
 public:
+    explicit SEEDLink(const SEEDLinkOptions &options);
     void stop() override;
 private:
     class SEEDLinkImpl;

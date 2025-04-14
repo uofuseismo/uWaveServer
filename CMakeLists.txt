@@ -21,13 +21,18 @@ configure_file(${CMAKE_SOURCE_DIR}/src/private/version.hpp.in
 
 set(LIBRARY_SRC
     src/dataClient/dataClient.cpp
-    src/dataClient/seedLink.cpp
     src/dataClient/streamSelector.cpp
     src/deduplicator.cpp
     src/packet.cpp
     src/version.cpp
     src/database/client.cpp
     src/database/connection/postgresql.cpp)
+if (${SEEDLINK_FOUND})
+   message("Found SEEDLink")
+   set(LIBRARY_SRC ${LIBRARY_SRC}
+       src/dataClient/seedLink.cpp
+       src/dataClient/seedLinkOptions.cpp)
+endif()
 
 set(BUILD_SHARED_LIBS YES)
 add_library(uWaveServer ${LIBRARY_SRC})
@@ -36,12 +41,17 @@ set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD_REQUIRED YES
                       CXX_EXTENSIONS NO)
 target_link_libraries(uWaveServer
-                      PRIVATE spdlog::spdlog SOCI::soci_core SOCI::soci_postgresql ${SEEDLINK_LIBRARY} ${MINISEED_LIBRARY})
+                      PRIVATE spdlog::spdlog SOCI::soci_core SOCI::soci_postgresql 
+                              ${MINISEED_LIBRARY})
 target_include_directories(uWaveServer
-                           PRIVATE ${MINISEED_INCLUDE_DIR} ${SEEDLINK_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
+                           PRIVATE ${MINISEED_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                            PUBLIC $<INSTALL_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>)
+if (${SEEDLINK_FOUND})
+   target_link_libraries(uWaveServer PRIVATE ${SEEDLINK_LIBRARY})
+   target_include_directories(uWaveServer PRIVATE ${SEEDLINK_INCLUDE_DIR})
+endif()
 
 
 add_executable(uwsDataLoader

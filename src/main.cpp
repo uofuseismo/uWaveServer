@@ -322,6 +322,35 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
 
+std::cout << "hey" << std::endl;
+
+    if (propertyTree.get_optional<std::string> ("SEEDLink.address"))
+    {
+         
+    }
+    else
+    {
+        for (int iClient = 1; iClient <= 32768; ++iClient)
+        {
+            auto clientName = "SEEDLink_" + std::to_string(iClient);
+            if (propertyTree.get_optional<std::string> (clientName + ".address"))
+            {
+std::cout << "got telemetry" << std::endl;
+        /*
+        for (int iSelector = 1; iSelector <= 32768; ++iSelector)
+        {
+            std::string selectorName{"Telemetry.SEEDLink.data_selector_"};
+            selectorName = selectorName + std::to_string(iSelector);
+            auto selectorString
+                = propertyTree.get_optional<std::string> (selectorName);
+            if (selectorString)
+            {   
+            }
+        }
+        */
+             }
+        }
+    }
     return options;
 }
 
