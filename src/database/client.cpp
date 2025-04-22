@@ -13,6 +13,28 @@ using namespace UWaveServer::Database;
 namespace
 {
 
+std::string toName(const std::string &network,
+                   const std::string &station,
+                   const std::string &channel,
+                   const std::string &locationCode)
+{
+    auto name = network + "." + station + "." + channel;
+    if (!locationCode.empty())
+    {   
+        name = name + "." + locationCode;
+    }   
+    return name;
+}
+
+std::string toName(const UWaveServer::Packet &packet)
+{
+    auto network = packet.getNetwork();
+    auto station = packet.getStation();
+    auto channel = packet.getChannel();
+    auto locationCode = packet.getLocationCode();
+    return ::toName(network, station, channel, locationCode);
+}
+
 template<typename T>
 void fill(const int nSamples,
           const int sensorIdentifier,
@@ -69,7 +91,7 @@ public:
         auto station = packet.getStation();
         auto channel = packet.getChannel();
         auto locationCode = packet.getLocationCode();
-        auto name = network + "." + station + "." + channel;
+        auto name = ::toName(network, station, channel, locationCode);
         auto index = mSensorIdentifiers.find(name);
         if (index != mSensorIdentifiers.end())
         {
@@ -121,11 +143,7 @@ public:
             auto station = row.get<std::string> (2);
             auto channel = row.get<std::string> (3);
             auto locationCode = row.get<std::string> (4);
-            auto name = network + "." + station + "." + channel;
-            if (!locationCode.empty())
-            {
-                 name = name + "." + locationCode;
-            }
+            auto name = ::toName(network, station, channel, locationCode);
             names.push_back(name);
             identifiers.push_back(identifier);
         }
@@ -159,7 +177,7 @@ public:
     {
         if (packet.empty())
         {
-            spdlog::warn("Packet has not data - returning");
+            spdlog::warn("Packet has no data - returning");
             return;
         } 
         // Ensure 
@@ -298,7 +316,29 @@ Client::Client(Connection::PostgreSQL &&connection) :
 /// Destructor
 Client::~Client() = default;
 
-void Client::write(const UWaveServer::Packet &packetIn)
+/// Write the data packet
+void Client::write(const UWaveServer::Packet &packet)
 {
-    
+    if (!packet.haveNetwork())
+    {
+        throw std::invalid_argument("Network not set on packet");
+    }
+    if (!packet.haveStation())
+    {
+        throw std::invalid_argument("Station not set on packet");
+    }
+    if (!packet.haveChannel())
+    {
+        throw std::invalid_argument("Channel not set on packet");
+    }
+    if (!packet.haveSamplingRate())
+    {
+        throw std::invalid_argument("Sampling rate not set on packet");
+    }
+    if (packet.empty())
+    {
+        spdlog::warn("Packet has not data - returning");
+        return;
+    }
+    pImpl->insert(packet);
 }

@@ -8,7 +8,6 @@
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <spdlog/spdlog.h>
-
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
@@ -81,6 +80,15 @@ ProgramOptions parseIniFile(const std::string &iniFile);
 class Process
 {
 public:
+    /// Constructor
+    Process(std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
+    {
+        if (databaseClient == nullptr)
+        {
+            throw std::runtime_error("Database client is null");
+        }
+        mDatabaseClient = std::move(databaseClient); 
+    }
     // Data acquisitions likely will have similar latencies.  So the first
     // thing to do is just check if we're seeing the latest near real-time
     // packet.
@@ -195,14 +203,17 @@ public:
             }
         }
     }
+    /// @result True indicates the processes should continue to run.
     [[nodiscard]] bool keepRunning() const noexcept
     {
         return mRunning;
     }
+    /// @brief Toggles the mode as running or not running.
     void setRunning(bool running)
     {
         mRunning = running; 
     }
+    /// @brief Stops the processes.
     void stop()
     {
         setRunning(false);
@@ -217,7 +228,6 @@ public:
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
     std::vector<UWaveServer::DataClient::IDataClient> mDataAcquisitionClients;
-  
     std::atomic<bool> mRunning{true};
 };
 
@@ -271,8 +281,11 @@ int main(int argc, char *argv[])
           + std::string {e.what()});
         return EXIT_FAILURE;
     }
-    // Create the SEEDLink connections
-
+    // Create the data source connections
+    for (const auto &dataClientOptions : programOptions.seedLinkOptions)
+    {
+        UWaveServer::DataClient::SEEDLink client{dataClientOptions};
+    } 
     // Initialize the utility that will map from the acquistion to the database 
 
     return EXIT_SUCCESS;
@@ -317,6 +330,90 @@ Allowed options)""");
     return iniFile;
 }
 
+[[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions
+getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
+                   const std::string &clientName)
+{
+    UWaveServer::DataClient::SEEDLinkOptions clientOptions;
+    auto address = propertyTree.get<std::string> (clientName + ".address");
+    auto port = propertyTree.get<uint16_t> (clientName + ".port", 18000);
+    clientOptions.setAddress(address);
+    clientOptions.setPort(port);
+    for (int iSelector = 1; iSelector <= 32768; ++iSelector)
+    {
+        std::string selectorName{clientName
+                               + ".data_selector_"
+                               + std::to_string(iSelector)};
+        auto selectorString
+            = propertyTree.get_optional<std::string> (selectorName);
+        if (selectorString)
+        {
+            std::vector<std::string> splitSelectors;
+            boost::split(splitSelectors, *selectorString,
+                         boost::is_any_of(",|"));
+            // A selector string can look like:
+            // UU.FORK.HH?.01 | UU.CTU.EN?.01 | ....
+            for (const auto &thisSplitSelector : splitSelectors)
+            {
+                std::vector<std::string> thisSelector; 
+                auto splitSelector = thisSplitSelector;
+                boost::algorithm::trim(splitSelector);
+
+                boost::split(thisSelector, splitSelector,
+                             boost::is_any_of(" \t"));
+                UWaveServer::DataClient::StreamSelector selector;
+                if (splitSelector.empty())
+                {
+                    throw std::invalid_argument("Empty selector");
+                }
+                // Require a network
+                boost::algorithm::trim(thisSelector.at(0));
+                selector.setNetwork(thisSelector.at(0));
+                // Add a station?
+                if (splitSelector.size() > 1)
+                {
+                    boost::algorithm::trim(thisSelector.at(1));
+                    selector.setStation(thisSelector.at(1));
+                }
+                // Add channel + location code + data type
+                std::string channel{"*"};
+                std::string locationCode{"??"};
+                if (splitSelector.size() > 2)
+                {
+                    boost::algorithm::trim(thisSelector.at(2));
+                    channel = thisSelector.at(2);
+                }
+                if (splitSelector.size() > 3)
+                {
+                    boost::algorithm::trim(thisSelector.at(3));
+                    locationCode = thisSelector.at(3);
+                }
+                // Data type
+                auto dataType
+                    = UWaveServer::DataClient::StreamSelector::Type::All;
+                if (splitSelector.size() > 4)
+                {
+                    boost::algorithm::trim(thisSelector.at(4));
+                    if (thisSelector.at(4) == "D")
+                    {
+                        dataType
+                          = UWaveServer::DataClient::StreamSelector::Type::Data;
+                    }
+                    else if (thisSelector.at(4) == "A")
+                    {
+                        dataType 
+                            = UWaveServer::DataClient::StreamSelector::Type::All;
+                    }
+                    // TODO other data types
+                }
+                selector.setSelector(channel, locationCode, dataType);
+                clientOptions.addStreamSelector(selector);
+            } // Loop on selectors
+        } // End check on selector string
+    } // Loop on selectors
+    return clientOptions;
+}
+
 ProgramOptions parseIniFile(const std::string &iniFile)
 {   
     ProgramOptions options;
@@ -327,7 +424,8 @@ ProgramOptions parseIniFile(const std::string &iniFile)
 
     if (propertyTree.get_optional<std::string> ("SEEDLink.address"))
     {
-         
+        auto clientOptions = ::getSEEDLinkOptions(propertyTree, "SEEDLink");
+        options.seedLinkOptions.push_back(std::move(clientOptions));
     }
     else
     {
@@ -336,6 +434,10 @@ ProgramOptions parseIniFile(const std::string &iniFile)
             auto clientName = "SEEDLink_" + std::to_string(iClient);
             if (propertyTree.get_optional<std::string> (clientName + ".address"))
             {
+                auto clientOptions
+                    = ::getSEEDLinkOptions(propertyTree, clientName);
+                options.seedLinkOptions.push_back(std::move(clientOptions));
+/*
                 UWaveServer::DataClient::SEEDLinkOptions clientOptions;
                 auto address = propertyTree.get<std::string> (clientName + ".address");
                 auto port = propertyTree.get<uint16_t> (clientName + ".port", 18000);
@@ -406,6 +508,7 @@ std::cout << "got telemetry" << std::endl;
                     } // End check on have selector
                     options.seedLinkOptions.push_back(clientOptions);
                 } // Loop on selectors
+*/
             }
         }
     }

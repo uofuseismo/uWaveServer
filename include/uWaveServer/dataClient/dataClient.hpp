@@ -19,7 +19,7 @@ class IDataClient
 public:
     enum Type
     {
-       SEEDLink
+        SEEDLink
     };
 public:
     /// @brief Constructor.
@@ -42,6 +42,9 @@ public:
     /// @brief Allows a higher level function to add the newly
     ///        acquired packets from this data feed.
     void setCallback(const std::function<void (std::vector<Packet> &&packets)> &callback) noexcept;
+    /// @brief Adds the packets.
+    virtual void addPackets(std::vector<Packet> &&packets);
+    virtual void addPacket(Packet &&packet);
 private:
     class IDataClientImpl;
     std::unique_ptr<IDataClientImpl> pImpl;

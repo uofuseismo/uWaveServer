@@ -24,5 +24,22 @@ IDataClient::IDataClient() :
 {
 }
 
+/// Add packets
+void IDataClient::addPacket(Packet &&packet)
+{
+    std::vector<Packet> packets{std::move(packet)};    
+    addPackets(std::move(packets));
+}
+
+void IDataClient::addPackets(std::vector<Packet> &&packets)
+{
+    if (!pImpl->mHaveCallback)
+    {
+        throw std::runtime_error("Packet adding callback not set");
+    }
+    if (packets.empty()){return;}
+    pImpl->mCallback(std::move(packets));
+}
+
 /// Destructor
 IDataClient::~IDataClient() = default;

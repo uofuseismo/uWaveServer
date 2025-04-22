@@ -91,6 +91,9 @@ public:
     /// @result True indicates there are no data samples.
     [[nodiscard]] bool empty() const noexcept;
 
+
+    /// @brief Sets a data packet.
+    template<typename U> void setData(const int nSamples, const U *data);
     /// @result A raw pointer to the underlying data.
     [[nodiscard]] const void *data() const noexcept;
 

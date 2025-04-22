@@ -11,7 +11,12 @@ class SEEDLink : public IDataClient
 {
 public:
     explicit SEEDLink(const SEEDLinkOptions &options);
+    ~SEEDLink() override;
+    void connect() override;
+    void start() override;
     void stop() override;
+    [[nodiscard]] bool isInitialized() const noexcept final;
+    [[nodiscard]] bool isConnected() const noexcept final;
     [[nodiscard]] Type getType() const noexcept final;
 private:
     class SEEDLinkImpl;

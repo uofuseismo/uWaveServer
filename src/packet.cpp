@@ -80,6 +80,41 @@ public:
         assert(false);
 #endif
     }
+    void clearData()
+    {
+        mInteger32Data.clear();
+        mInteger64Data.clear();
+        mFloatData.clear();
+        mDoubleData.clear();
+    }
+    void setData(const std::vector<int> &&data)
+    {
+        if (data.empty()){return;}
+        clearData();
+        mInteger32Data = std::move(data); 
+        updateEndTime();
+    }
+    void setData(const std::vector<float> &&data)
+    {   
+        if (data.empty()){return;}
+        clearData();
+        mFloatData = std::move(data); 
+        updateEndTime();
+    }
+    void setData(const std::vector<double> &&data)
+    {   
+        if (data.empty()){return;}
+        clearData();
+        mDoubleData = std::move(data); 
+        updateEndTime();
+    }
+    void setData(const std::vector<int64_t> &&data)
+    {   
+        if (data.empty()){return;}
+        clearData();
+        mInteger64Data = std::move(data); 
+        updateEndTime();
+    }   
     void updateEndTime()
     {
         mEndTimeMicroSeconds = mStartTimeMicroSeconds;
@@ -294,5 +329,72 @@ bool Packet::empty() const noexcept
     return pImpl->empty();
 }
 
+/// Get data
+const void* Packet::data() const noexcept 
+{
+    if (empty()){return nullptr;}
+    auto dataType = getDataType();
+    if (dataType == Packet::DataType::Integer32)
+    {
+        return pImpl->mInteger32Data.data();
+    }
+    else if (dataType == Packet::DataType::Float)
+    {
+        return pImpl->mFloatData.data();
+    }
+    else if (dataType == Packet::DataType::Double)
+    {
+        return pImpl->mDoubleData.data();
+    }
+    else if (dataType == Packet::DataType::Integer64)
+    {
+        return pImpl->mInteger64Data.data();
+    }
+    else if (dataType  == Packet::DataType::Unknown)
+    {
+        return nullptr;
+    }
+#ifndef NDEBUG
+    else 
+    {
+        assert(false);
+    }
+#endif
+    return nullptr;
+}
+
+/// Data type
+Packet::DataType Packet::getDataType() const noexcept
+{
+    return pImpl->mDataType;
+}
+
+/// Size
+int Packet::size() const noexcept
+{
+    return pImpl->size();
+}
+
+/// Set data
+template<typename U>
+void Packet::setData(const int nSamples, const U *data)
+{
+    if (nSamples < 1)
+    {
+        throw std::invalid_argument("No data samples");
+    }
+    if (data == nullptr){throw std::invalid_argument("data is null");}
+    std::vector<U> dataVector{data, data + nSamples};
+    pImpl->setData(std::move(dataVector));
+}
+
 /// Destructor
 Packet::~Packet() = default;
+
+///--------------------------------------------------------------------------///
+///                             Template Instantiation                       ///
+///--------------------------------------------------------------------------///
+template void Packet::setData(const int nSamples, const int *data);
+template void Packet::setData(const int nSamples, const float *data);
+template void Packet::setData(const int nSamples, const double *data);
+template void Packet::setData(const int nSamples, const int64_t *data);
