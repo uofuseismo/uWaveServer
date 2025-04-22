@@ -24,6 +24,8 @@ public:
 public:
     /// @brief Constructor.
     IDataClient();
+    /// @brief Construtor with callback.
+    explicit IDataClient(const std::function<void (std::vector<Packet> &&packets)> &callback);
     /// @brief Destructor.
     virtual ~IDataClient();
     /// @brief Connects the client to the data source.

@@ -10,7 +10,8 @@ namespace UWaveServer::DataClient
 class SEEDLink : public IDataClient
 {
 public:
-    explicit SEEDLink(const SEEDLinkOptions &options);
+    SEEDLink(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
+             const SEEDLinkOptions &options);
     ~SEEDLink() override;
     void connect() override;
     void start() override;

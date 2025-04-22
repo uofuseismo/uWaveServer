@@ -296,7 +296,8 @@ public:
             mConnection.connect();
             if (!mConnection.isConnected())
             {
-                throw std::runtime_error("Cant establish database connection");
+                throw std::runtime_error(
+                    "Cannot establish database connection");
             }
         }
         initializeSensors();
@@ -315,6 +316,24 @@ Client::Client(Connection::PostgreSQL &&connection) :
 
 /// Destructor
 Client::~Client() = default;
+
+/// Connected?
+bool Client::isConnected() const noexcept
+{
+    return pImpl->mConnection.isConnected();
+}
+
+/// Connect
+void Client::connect()
+{
+    pImpl->mConnection.connect();
+}
+
+/// Disconnect
+void Client::disconnect()
+{
+    pImpl->mConnection.disconnect();
+}
 
 /// Write the data packet
 void Client::write(const UWaveServer::Packet &packet)

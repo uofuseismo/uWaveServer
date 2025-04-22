@@ -26,6 +26,15 @@ public:
     /// @throws std::runtime_error if there is another error while writing
     ///         the data.
     void write(const UWaveServer::Packet &packet);
+
+    
+    /// @brief (Re)Establishes a connection.
+    void connect();
+    /// @result True indicates the client is connected.
+    [[nodiscard]] bool isConnected() const noexcept;
+    /// @brief Closes the connection.
+    void disconnect();
+
     /// @brief Destrutcor.
     ~Client();
 

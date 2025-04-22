@@ -19,6 +19,18 @@
 
 [[nodiscard]] std::string parseCommandLineOptions(int argc, char *argv[]);
 
+std::string toName(const UWaveServer::Packet &packet)
+{
+    auto name = packet.getNetwork() + "." 
+              + packet.getStation() + "." 
+              + packet.getChannel();
+    if (!packet.getLocationCode().empty())
+    {
+        name = name + "." + packet.getLocationCode();
+    }
+    return name;
+}
+
 std::string getEnvironmentVariable(const std::string &variable,
                                    const std::string &defaultValue)
 {
@@ -73,6 +85,7 @@ struct ProgramOptions
     std::string databaseHost{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST")};
     std::string databaseSchema{"ynp"};//::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA")};
     int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
+    int mQueueCapacity{8092}; // Want this big enough but not too big
 };
 
 ProgramOptions parseIniFile(const std::string &iniFile);
@@ -80,14 +93,92 @@ ProgramOptions parseIniFile(const std::string &iniFile);
 class Process
 {
 public:
+    Process() = delete;
     /// Constructor
-    Process(std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
+    explicit Process(const ProgramOptions &options)
+    //        std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
     {
-        if (databaseClient == nullptr)
+        // Reserve size the queues
+        mShallowDeduplicatorPacketQueue.setCapacity(options.mQueueCapacity);
+        mDeepDeduplicatorPacketQueue.setCapacity(options.mQueueCapacity);
+        mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
+
+        // Create the database connection
+        spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
+        UWaveServer::Database::Connection::PostgreSQL databaseConnection;
+        databaseConnection.setUser(options.databaseUser);
+        databaseConnection.setPassword(options.databasePassword);
+        databaseConnection.setAddress(options.databaseHost);
+        databaseConnection.setPort(options.databasePort);
+        databaseConnection.setDatabaseName(options.databaseName);
+        databaseConnection.setApplication(options.applicationName);
+        if (!options.databaseSchema.empty())
         {
-            throw std::runtime_error("Database client is null");
+            databaseConnection.setSchema(options.databaseSchema);
         }
-        mDatabaseClient = std::move(databaseClient); 
+        databaseConnection.connect(); 
+        mDatabaseClient 
+            = std::make_unique<UWaveServer::Database::Client>
+              (std::move(databaseConnection));
+
+        // Create data clients
+        spdlog::debug("Creating SEEDLink clients...");
+        for (const auto &seedLinkOptions : options.seedLinkOptions)
+        {
+            std::unique_ptr<UWaveServer::DataClient::IDataClient> client
+                = std::make_unique<UWaveServer::DataClient::SEEDLink>
+                    (mAddPacketsFromAcquisitionCallback, seedLinkOptions);
+            mDataAcquisitionClients.push_back(std::move(client));
+        } 
+
+        mInitialized = true;
+    }
+    void addPacketsFromAcquisition(std::vector<UWaveServer::Packet> &&packetsIn)
+    {
+        for (auto &packet : packetsIn)
+        {
+            addPacketFromAcquisition(std::move(packet));
+        } 
+    }
+    // Adds a packet obtained by the acquisition
+    void addPacketFromAcquisition(UWaveServer::Packet &&packet)
+    {
+        if (!packet.haveNetwork())
+        {
+            spdlog::warn("Network not set on packet - skipping");
+            return;
+        }
+        if (!packet.haveStation())
+        {
+            spdlog::warn("Station not set on packet - skipping");
+            return;
+        }
+        if (!packet.haveChannel())
+        {
+            spdlog::warn("Channel not set on packet - skipping");
+            return;
+        }
+        if (!packet.haveLocationCode())
+        {
+            spdlog::warn("Location code not set on packet - skipping");
+            return;
+        }
+        if (!packet.haveSamplingRate())
+        {
+            auto name = ::toName(packet);
+            spdlog::warn("Sampling rate not set on " + name 
+                       + "'s packet - skipping");
+            return;
+        }
+        if (packet.empty())
+        {
+            auto name = ::toName(packet);
+            spdlog::warn("No data on " + name + "'s packet - skipping");
+            return;
+        }
+auto name = ::toName(packet);
+spdlog::debug("Adding " + name);
+//        mShallowDeduplicatorPacketQueue.push(std::move(packet));
     }
     // Data acquisitions likely will have similar latencies.  So the first
     // thing to do is just check if we're seeing the latest near real-time
@@ -213,22 +304,61 @@ public:
     {
         mRunning = running; 
     }
+    /// @brief Starts the processes
+    void start()
+    {
+        if (!mInitialized)
+        {
+            throw std::runtime_error("Class not initialized");
+        }
+        stop();
+        for (auto &dataAcquisitionClient : mDataAcquisitionClients)
+        {
+            spdlog::info("Starting client");
+            dataAcquisitionClient->start();
+        }
+    }
     /// @brief Stops the processes.
     void stop()
     {
         setRunning(false);
         for (auto &dataAcquisitionClient : mDataAcquisitionClients)
         {
-            dataAcquisitionClient.stop();
+            dataAcquisitionClient->stop();
         }
+        emptyQueues();
     }
+    /// @brief Starts the processes
+    void emptyQueues()
+    {   
+        while (!mShallowDeduplicatorPacketQueue.empty())
+        {   
+            mShallowDeduplicatorPacketQueue.pop();
+        } 
+        while (!mDeepDeduplicatorPacketQueue.empty())
+        {   
+            mDeepDeduplicatorPacketQueue.pop();
+        }   
+        while (!mWritePacketToDatabaseQueue.empty())
+        {   
+            mWritePacketToDatabaseQueue.pop();
+        }   
+    }   
 
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowDeduplicatorPacketQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepDeduplicatorPacketQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
-    std::vector<UWaveServer::DataClient::IDataClient> mDataAcquisitionClients;
+    std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
+        mDataAcquisitionClients;
+    std::function<void(std::vector<UWaveServer::Packet> &&packet)>
+        mAddPacketsFromAcquisitionCallback
+    {
+        std::bind(&::Process::addPacketsFromAcquisition, this,
+                  std::placeholders::_1)
+    };
     std::atomic<bool> mRunning{true};
+    bool mInitialized{false};
 };
 
 int main(int argc, char *argv[]) 
@@ -255,6 +385,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    /*
     // Create the database connection
     UWaveServer::Database::Connection::PostgreSQL databaseConnection;
     try
@@ -281,12 +412,26 @@ int main(int argc, char *argv[])
           + std::string {e.what()});
         return EXIT_FAILURE;
     }
+    */
     // Create the data source connections
-    for (const auto &dataClientOptions : programOptions.seedLinkOptions)
+    spdlog::info("Initializing processes...");
+    std::unique_ptr<::Process> process; 
+    try
     {
-        UWaveServer::DataClient::SEEDLink client{dataClientOptions};
-    } 
-    // Initialize the utility that will map from the acquistion to the database 
+        process = std::make_unique<::Process> (programOptions);
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::error("Failed to initialize worker class; failed with "
+                    + std::string{e.what()});
+        return EXIT_FAILURE;
+    }
+
+    process->start();
+    std::this_thread::sleep_for(std::chrono::seconds {10}); 
+    process->stop();
+
+    // Initialize the utility that will map from the acquisition to the database 
 
     return EXIT_SUCCESS;
 }
@@ -437,78 +582,6 @@ ProgramOptions parseIniFile(const std::string &iniFile)
                 auto clientOptions
                     = ::getSEEDLinkOptions(propertyTree, clientName);
                 options.seedLinkOptions.push_back(std::move(clientOptions));
-/*
-                UWaveServer::DataClient::SEEDLinkOptions clientOptions;
-                auto address = propertyTree.get<std::string> (clientName + ".address");
-                auto port = propertyTree.get<uint16_t> (clientName + ".port", 18000);
-                clientOptions.setAddress(address);
-                clientOptions.setPort(port);
-std::cout << "got telemetry" << std::endl;
-                for (int iSelector = 1; iSelector <= 32768; ++iSelector)
-                {
-                    std::string selectorName{clientName
-                                           + ".data_selector_"
-                                           + std::to_string(iSelector)};
-                    auto selectorString
-                        = propertyTree.get_optional<std::string> (selectorName);
-                    if (selectorString)
-                    {
-                        std::vector<std::string> splitSelectors;
-                        boost::split(splitSelectors, *selectorString, boost::is_any_of(",|"));
-                        for (const auto &thisSplitSelector : splitSelectors)
-                        {
-                            std::vector<std::string> thisSelector; 
-                            auto splitSelector = thisSplitSelector;
-                            boost::algorithm::trim(splitSelector);
- 
-                            boost::split(thisSelector, splitSelector, boost::is_any_of(" \t"));
-                            UWaveServer::DataClient::StreamSelector selector;
-                            if (splitSelector.empty())
-                            {
-                                throw std::invalid_argument("Empty selector");
-                            }
-                            // Require a network
-                            boost::algorithm::trim(thisSelector.at(0));
-                            selector.setNetwork(thisSelector.at(0));
-                            if (splitSelector.size() > 1)
-                            {
-                                 boost::algorithm::trim(thisSelector.at(1));
-                                 selector.setStation(thisSelector.at(1));
-                            }
-                            std::string channel{"*"};
-                            std::string locationCode{"??"};
-                            if (splitSelector.size() > 2)
-                            {
-                                boost::algorithm::trim(thisSelector.at(2));
-                                channel = thisSelector.at(2);
-                            }
-                            if (splitSelector.size() > 3)
-                            {
-                                 boost::algorithm::trim(thisSelector.at(3));
-                                 locationCode = thisSelector.at(3);
-                            }
-                            // Data type
-                            UWaveServer::DataClient::StreamSelector::Type dataType{UWaveServer::DataClient::StreamSelector::Type::All};
-                            if (splitSelector.size() > 4)
-                            {
-                                 boost::algorithm::trim(thisSelector.at(4));
-                                 if (thisSelector.at(4) == "D")
-                                 {
-                                     dataType = UWaveServer::DataClient::StreamSelector::Type::Data;
-                                 }
-                                 else if (thisSelector.at(4) == "A")
-                                 {
-                                     dataType = UWaveServer::DataClient::StreamSelector::Type::All;
-                                 }
-                                 // TODO other data types
-                            }
-                            selector.setSelector(channel, locationCode, dataType);
-                            clientOptions.addStreamSelector(selector);
-                        } // Loop on selector split
-                    } // End check on have selector
-                    options.seedLinkOptions.push_back(clientOptions);
-                } // Loop on selectors
-*/
             }
         }
     }

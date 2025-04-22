@@ -6,6 +6,13 @@ using namespace UWaveServer::DataClient;
 class IDataClient::IDataClientImpl
 {
 public:
+    IDataClientImpl() = default;
+    explicit IDataClientImpl(
+        const std::function<void (std::vector<Packet> &&packets)> &callback) :
+        mCallback(callback),
+        mHaveCallback(true)
+    {
+    }
     void addPackets(Packet &&packet)
     {
         std::vector<Packet> packets{std::move(packet)};
@@ -22,6 +29,14 @@ public:
 IDataClient::IDataClient() :
     pImpl(std::make_unique<IDataClientImpl> ())
 {
+}
+
+IDataClient::IDataClient(
+    const std::function<void (std::vector<Packet> &&packets)> &callback) :
+    pImpl(std::make_unique<IDataClientImpl> (callback))
+{
+
+
 }
 
 /// Add packets

@@ -54,7 +54,7 @@ public:
         assert(false);
 #endif
     }
-    [[nodiscard]] bool empty() const
+    [[nodiscard]] bool isEmpty() const
     {
         if (mDataType == Packet::DataType::Unknown)
         {
@@ -86,12 +86,14 @@ public:
         mInteger64Data.clear();
         mFloatData.clear();
         mDoubleData.clear();
+        mDataType = Packet::DataType::Unknown;
     }
     void setData(const std::vector<int> &&data)
     {
         if (data.empty()){return;}
         clearData();
         mInteger32Data = std::move(data); 
+        mDataType = Packet::DataType::Integer32;
         updateEndTime();
     }
     void setData(const std::vector<float> &&data)
@@ -99,6 +101,7 @@ public:
         if (data.empty()){return;}
         clearData();
         mFloatData = std::move(data); 
+        mDataType = Packet::DataType::Float;
         updateEndTime();
     }
     void setData(const std::vector<double> &&data)
@@ -106,6 +109,7 @@ public:
         if (data.empty()){return;}
         clearData();
         mDoubleData = std::move(data); 
+        mDataType = Packet::DataType::Double;
         updateEndTime();
     }
     void setData(const std::vector<int64_t> &&data)
@@ -113,6 +117,7 @@ public:
         if (data.empty()){return;}
         clearData();
         mInteger64Data = std::move(data); 
+        mDataType = Packet::DataType::Integer64;
         updateEndTime();
     }   
     void updateEndTime()
@@ -253,6 +258,7 @@ bool Packet::haveChannel() const noexcept
 void Packet::setLocationCode(const std::string &stringIn)
 {
     pImpl->mLocationCode = ::convertString(stringIn); 
+    pImpl->mHaveLocationCode = true;
 }
 
 std::string Packet::getLocationCode() const
@@ -326,7 +332,7 @@ std::chrono::microseconds Packet::getEndTime() const
 
 bool Packet::empty() const noexcept
 {
-    return pImpl->empty();
+    return pImpl->isEmpty();
 }
 
 /// Get data
