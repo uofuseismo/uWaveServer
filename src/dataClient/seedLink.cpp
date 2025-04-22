@@ -1,4 +1,5 @@
 #include <string>
+#include <array>
 #include <cstring>
 #include <cmath>
 #include <vector>
@@ -12,6 +13,7 @@
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/streamSelector.hpp"
+#include "uWaveServer/version.hpp"
 #include "uWaveServer/packet.hpp"
 
 using namespace UWaveServer::DataClient;
@@ -21,14 +23,14 @@ namespace
 /// @brief Unpacks a miniSEED record.
 [[nodiscard]]
 UWaveServer::Packet
-    miniSEEDToDataPacket(char *msRecord,
-                         const int seedLinkRecordSize = 512)
+    miniSEEDToDataPacket(char *msRecord, const int bufferSize)
+    //                     const int seedLinkRecordSize = 512)
 {
     UWaveServer::Packet dataPacket;
     constexpr int8_t verbose{0};
     constexpr uint32_t flags{MSF_UNPACKDATA};
     MS3Record *miniSEEDRecord{nullptr};
-    auto returnValue = msr3_parse(msRecord, seedLinkRecordSize,
+    auto returnValue = msr3_parse(msRecord, bufferSize, //seedLinkRecordSize,
                                   &miniSEEDRecord, flags,
                                   verbose);
     if (returnValue == 0)
@@ -205,27 +207,33 @@ public:
             }
         }
         // Now start scraping
-        SLpacket *seedLinkPacket{nullptr};
+        const SLpacketinfo *seedLinkPacketInfo{nullptr};
+        std::array<char, SL_RECV_BUFFER_SIZE> seedLinkBuffer;
+        const auto seedLinkBufferSize
+            = static_cast<uint32_t> (seedLinkBuffer.size());
         int updateStateFile{1};
         while (mKeepRunning)
         {
             // Block until a packet is received.  In this case, an external
             // thread can terminate the broadcast in which case, we quit.
-            auto returnValue = sl_collect(mSEEDLinkConnection, &seedLinkPacket);
+            auto returnValue = sl_collect(mSEEDLinkConnection,
+                                          &seedLinkPacketInfo,
+                                          seedLinkBuffer.data(),
+                                          seedLinkBufferSize);
             // Deal with packet
             if (returnValue == SLPACKET)
             {
-                auto packetType = sl_packettype(seedLinkPacket);
                 // I really only care about data packets
-                if (packetType == SLDATA)
+                if (seedLinkPacketInfo->payloadformat == SLPAYLOAD_MSEED2 ||
+                    seedLinkPacketInfo->payloadformat == SLPAYLOAD_MSEED3)
                 {
                     //auto sequenceNumber = sl_sequence(seedLinkPacket);
-                    auto miniSEEDRecord
-                        = reinterpret_cast<char *> (seedLinkPacket->msrecord);
+                    auto payloadLength = seedLinkPacketInfo->payloadlength;
                     try
                     {
-                        auto packet = ::miniSEEDToDataPacket(miniSEEDRecord,
-                                                             mSEEDRecordSize);
+                        auto packet
+                            = ::miniSEEDToDataPacket(seedLinkBuffer.data(),
+                                                     payloadLength); //mSEEDRecordSize);
                         mAddPacketFunction(std::move(packet));
                     }
                     catch (const std::exception &e)
@@ -244,6 +252,19 @@ public:
                         updateStateFile = updateStateFile + 1;
                     }
                 }
+            }
+            else if (returnValue == SLTOOLARGE)
+            {
+                spdlog::warn("Pyaload length "
+                           + std::to_string(seedLinkPacketInfo->payloadlength)
+                           + " exceeds " + std::to_string(seedLinkBufferSize) 
+                           + "; skipping");
+                continue;
+            }
+            else if (returnValue == SLNOPACKET)
+            {
+                spdlog::debug("No data from sl_collect");
+                continue;
             }
             else if (returnValue == SLTERMINATE)
             {
@@ -268,7 +289,9 @@ public:
         disconnect();
         mInitialized = false;
         // Create a new instance
-        mSEEDLinkConnection = sl_newslcd();
+        mSEEDLinkConnection
+            = sl_initslcd(mClientName.c_str(),
+                          UWaveServer::Version::getVersion().c_str());
         // Set the connection string
         auto address = options.getAddress();
         auto port = options.getPort();
@@ -299,12 +322,12 @@ public:
                            + network + " "
                            + station + " "
                            + streamSelector);
-                auto returnCode = sl_addstream(mSEEDLinkConnection,
-                                               network.c_str(),
-                                               station.c_str(),
-                                               streamSelector.c_str(),
-                                               sequenceNumber,
-                                               timeStamp);
+                auto stationID = network + "_" + station;
+                auto returnCode = sl_add_stream(mSEEDLinkConnection,
+                                                stationID.c_str(),
+                                                streamSelector.c_str(),
+                                                sequenceNumber,
+                                                timeStamp);
                 if (returnCode != 0)
                 {
                     throw std::runtime_error("Failed to add selector: "
@@ -323,9 +346,10 @@ public:
         if (mSEEDLinkConnection->streams == nullptr)
         {
             const char *selectors{nullptr};
-            auto returnCode = sl_setuniparams(mSEEDLinkConnection,
-                                              selectors, sequenceNumber,
-                                              timeStamp);
+            auto returnCode = sl_set_allstation_params(mSEEDLinkConnection,
+                                                       selectors,
+                                                       sequenceNumber,
+                                                       timeStamp);
             if (returnCode != 0)
             {
                 spdlog::error("Could not set SEEDLink uni-station mode");
@@ -364,6 +388,7 @@ public:
         mHaveOptions = true;
     }
     mutable std::mutex mMutex;
+    std::string mClientName{"uwsDataLoader"};
     std::function<void(Packet &&packet)> mAddPacketFunction;
     std::thread mSEEDLinkReaderThread;
     SLCD *mSEEDLinkConnection{nullptr};
