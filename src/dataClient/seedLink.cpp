@@ -7,7 +7,6 @@
 #include <atomic>
 #include <functional>
 #include <libslink.h>
-#include <slplatform.h>
 #include <libmseed.h>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/dataClient/seedLink.hpp"
