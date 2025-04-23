@@ -6,6 +6,8 @@
 #include <string>
 #include <boost/circular_buffer.hpp>
 #include <spdlog/spdlog.h>
+#include "uWaveServer/packetSanitizer.hpp"
+#include "uWaveServer/packetSanitizerOptions.hpp"
 #include "uWaveServer/packet.hpp"
 
 using namespace UWaveServer;
@@ -105,18 +107,10 @@ public:
 
 }
 
-/*
-class DataPacketSanitizer::DataPacketSanitizerImpl
+class PacketSanitizer::PacketSanitizerImpl
 {
 public:
-    DataPacketSanitizerImpl(std::shared_ptr<UMPS::Logging::ILog> logger = nullptr) :
-        mLogger(logger)
-    {
-        if (logger == nullptr)
-        {
-            mLogger = std::make_shared<UMPS::Logging::StandardOut> ();
-        }         
-    }
+    PacketSanitizerImpl() = default;
     void logBadData(const std::chrono::microseconds &nowMuSec)
     {
         if (!mLogBadData){return;}
@@ -183,7 +177,7 @@ public:
         {
             if (mLogBadData)
             {
-                mLogger->debug("Empty packet detected");
+                spdlog::debug("Empty packet detected");
                 mEmptyChannels.insert(header.name);
             }
             return false;
@@ -202,8 +196,8 @@ public:
         {
             if (mLogBadData)
             {
-                mLogger->debug(header.name
-                           + "'s data has expired; skipping...");
+                spdlog::debug(header.name
+                            + "'s data has expired; skipping...");
                 if (!mExpiredChannels.contains(header.name))
                 {
                     mExpiredChannels.insert(header.name);
@@ -217,11 +211,13 @@ public:
         {
             if (mLogBadData)
             {
-                mLogger->debug(header.name
-                           + "'s data is in future data; skipping...");
+                spdlog::debug(header.name
+                            + "'s data is in future data; skipping...");
+                {
                 if (!mFutureChannels.contains(header.name))
                 {
                     mFutureChannels.insert(header.name);
+                }
                 }
             }
             return false;
@@ -234,9 +230,9 @@ public:
              auto capacity
                  = ::estimateCapacity(header,
                                       mCircularBufferDuration);
-             mLogger->info("Creating new circular buffer for: "
-                         + header.name + " with capacity: "
-                         + std::to_string(capacity));
+             spdlog::info("Creating new circular buffer for: "
+                        + header.name + " with capacity: "
+                        + std::to_string(capacity));
              boost::circular_buffer<::DataPacketHeader>
                  newCircularBuffer(capacity);
              newCircularBuffer.push_back(header);
@@ -249,7 +245,7 @@ public:
         circularBufferIndex = mCircularBuffers.find(header.name);
         if (circularBufferIndex == mCircularBuffers.end())
         {
-            mLogger->error(
+            spdlog::warn(
                 "Algorithm error - circular buffer doesn't exist for: "
                + header.name);
             return false;
@@ -265,7 +261,7 @@ public:
             {
                 if (mLogBadData)
                 {
-                    mLogger->debug("Detected duplicate for: "
+                    spdlog::debug("Detected duplicate for: "
                                  + header.name);
                     if (!mDuplicateChannels.contains(header.name))
                     {
@@ -276,15 +272,15 @@ public:
             }
             else
             {
-                mLogger->debug("Initial duplicate found for: "
-                             + header.name + "; everything is fine!");
+                spdlog::debug("Initial duplicate found for: "
+                            + header.name + "; everything is fine!");
             }
         }
         // Insert it (typically new stuff shows up)
         if (header > circularBufferIndex->second.back())
         {
-            mLogger->debug("Inserting " + header.name
-                         + " at end of circular buffer");
+            spdlog::debug("Inserting " + header.name
+                        + " at end of circular buffer");
             circularBufferIndex->second.push_back(header);
             return true;
         }
@@ -298,7 +294,7 @@ public:
             {
                 if (mLogBadData)
                 {
-                    mLogger->debug("Detected possible timing slip for: "
+                    spdlog::debug("Detected possible timing slip for: "
                                  + header.name);
                     if (!mBadTimingChannels.contains(header.name))
                     {   
@@ -309,7 +305,7 @@ public:
             }
         }
         // This appears to be a valid (out-of-order) back-fill
-        mLogger->debug("Inserting " + header.name
+        spdlog::debug("Inserting " + header.name
                      + " in circular buffer then sorting...");
         circularBufferIndex->second.push_back(header);
         std::sort(circularBufferIndex->second.begin(),
@@ -322,7 +318,7 @@ public:
     }
     mutable std::map<std::string, boost::circular_buffer<::DataPacketHeader>>
         mCircularBuffers;
-    DataPacketSanitizerOptions mOptions;
+    PacketSanitizerOptions mOptions;
     std::set<std::string> mFutureChannels;
     std::set<std::string> mDuplicateChannels;
     std::set<std::string> mBadTimingChannels;
@@ -336,44 +332,58 @@ public:
     bool mLogBadData{true};
 };
 
+/*
 /// Constructor
-DataPacketSanitizer::DataPacketSanitizer() :
-    pImpl(std::make_unique<DataPacketSanitizerImpl> (nullptr))
+PacketSanitizer::PacketSanitizer() :
+    pImpl(std::make_unique<PacketSanitizerImpl> ())
 {
 }
+*/
 
-DataPacketSanitizer::DataPacketSanitizer(
-    std::shared_ptr<UMPS::Logging::ILog> &logger) :
-    pImpl(std::make_unique<DataPacketSanitizerImpl> (logger))
+/// Constructor
+PacketSanitizer::PacketSanitizer(const PacketSanitizerOptions &options) :
+    pImpl(std::make_unique<PacketSanitizerImpl> ())
 {
+    pImpl->mMaxFutureTime = options.getMaximumFutureTime();
+    pImpl->mMaxLatency = options.getMaximumLatency();
+    pImpl->mLogBadData = options.logBadData();
+    spdlog::debug("Max latency: " + std::to_string(pImpl->mMaxLatency.count()));
+    if (options.logBadData())
+    {   
+        pImpl->mLogBadDataInterval = options.getBadDataLoggingInterval();
+    }   
+    pImpl->mCircularBufferDuration
+        = std::chrono::duration_cast<std::chrono::seconds>
+          (3*pImpl->mMaxLatency);
+    pImpl->mOptions = options;
 }
 
 /// Copy constructor
-DataPacketSanitizer::DataPacketSanitizer(
-    const DataPacketSanitizer &sanitizer)
+PacketSanitizer::PacketSanitizer(
+    const PacketSanitizer &sanitizer)
 {
     *this = sanitizer;
 }
 
 /// Move constructor
-DataPacketSanitizer::DataPacketSanitizer(
-    DataPacketSanitizer &&sanitizer) noexcept
+PacketSanitizer::PacketSanitizer(
+    PacketSanitizer &&sanitizer) noexcept
 {
     *this = std::move(sanitizer);
 }
 
 /// Copy assignment
-DataPacketSanitizer&
-DataPacketSanitizer::operator=(const DataPacketSanitizer &sanitizer)
+PacketSanitizer&
+PacketSanitizer::operator=(const PacketSanitizer &sanitizer)
 {
     if (&sanitizer == this){return *this;} 
-    pImpl = std::make_unique<DataPacketSanitizerImpl> (*sanitizer.pImpl);
+    pImpl = std::make_unique<PacketSanitizerImpl> (*sanitizer.pImpl);
     return *this;
 }
 
 /// Move assignment
-DataPacketSanitizer&
-DataPacketSanitizer::operator=(DataPacketSanitizer &&sanitizer) noexcept
+PacketSanitizer&
+PacketSanitizer::operator=(PacketSanitizer &&sanitizer) noexcept
 {
     if (&sanitizer == this){return *this;}
     pImpl = std::move(sanitizer.pImpl);
@@ -381,33 +391,36 @@ DataPacketSanitizer::operator=(DataPacketSanitizer &&sanitizer) noexcept
 }
 
 /// Initialize
-void DataPacketSanitizer::initialize(const DataPacketSanitizerOptions &options)
+/*
+void PacketSanitizer::initialize(const PacketSanitizerOptions &options)
 {
     clear();
     pImpl->mMaxFutureTime = options.getMaximumFutureTime();
     pImpl->mMaxLatency = options.getMaximumLatency();
     pImpl->mLogBadData = options.logBadData();
-pImpl->mLogger->info("Max latency: " + std::to_string(pImpl->mMaxLatency.count()));
+    spdlog::debug("Max latency: " + std::to_string(pImpl->mMaxLatency.count()));
     if (options.logBadData())
     {
-         pImpl->mLogBadDataInterval = options.getBadDataLoggingInterval();
+        pImpl->mLogBadDataInterval = options.getBadDataLoggingInterval();
     }
-    pImpl->mCircularBufferDuration = std::chrono::duration_cast<std::chrono::seconds> (3*pImpl->mMaxLatency);
+    pImpl->mCircularBufferDuration
+        = std::chrono::duration_cast<std::chrono::seconds>
+          (3*pImpl->mMaxLatency);
     pImpl->mOptions = options;
 }
+*/
 
 /// Reset the class
-void DataPacketSanitizer::clear() noexcept
+void PacketSanitizer::clear() noexcept
 {
-    pImpl = std::make_unique<DataPacketSanitizerImpl> ();
+    pImpl = std::make_unique<PacketSanitizerImpl> ();
 }
 
 /// Destructor
-DataPacketSanitizer::~DataPacketSanitizer() = default;
+PacketSanitizer::~PacketSanitizer() = default;
 
 /// Allow this packet?
-bool DataPacketSanitizer::allow(
-    const URTS::Broadcasts::Internal::DataPacket::DataPacket &packet)
+bool PacketSanitizer::allow(const UWaveServer::Packet &packet)
 {
     // Construct the trace header for the circular buffer
     ::DataPacketHeader header;
@@ -417,12 +430,10 @@ bool DataPacketSanitizer::allow(
     }
     catch (const std::exception &e)
     {
-        pImpl->mLogger->warn(
+        spdlog::warn(
             "Failed to unpack dataPacketHeader.  Failed because: "
           + std::string {e.what()} + "; Not allowing...");
         return false;
     }
     return pImpl->allow(header);
 }
-
-*/

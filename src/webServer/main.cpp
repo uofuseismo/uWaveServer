@@ -2,6 +2,7 @@
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "uWaveServer/database/client.hpp"
+#include "listener.hpp"
 
 int main()
 {

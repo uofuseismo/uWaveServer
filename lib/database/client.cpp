@@ -2,6 +2,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
 #include <soci/soci.h>
 #include "uWaveServer/database/client.hpp"
@@ -286,7 +287,62 @@ public:
         }
 
     }
-
+    void getRetentionPolicy()
+    {
+        auto session 
+            = reinterpret_cast<soci::session *> (mConnection.getSession());
+        std::string result;
+        auto schema = mConnection.getSchema();
+        if (!schema.empty())
+        {
+            *session <<
+                "SELECT config::json->>'drop_after' AS retention FROM timescaledb_information.jobs WHERE hypertable_schema = :schema AND hypertable_name = 'sample' AND timescaledb_information.jobs.proc_name = 'policy_retention' LIMIT 1",
+                soci::use(schema),
+                soci::into(result);
+        }
+        else
+        {
+            *session << 
+               "SELECT config::json->>'drop_after' AS retention FROM timescaledb_information.jobs WHERE hypertable_name = 'sample' AND timescaledb_information.jobs.proc_name = 'policy_retention' LIMIT 1",
+            soci::into(result);
+        }
+        spdlog::debug("Retention policy is: " + result);
+        std::chrono::seconds duration{-1};
+        if (result.find("day") != std::string::npos)
+        {
+            std::vector<std::string> splitString;
+            boost::split(splitString, result, boost::is_any_of("day"));  
+            duration = std::chrono::seconds (std::stoi(splitString.at(0))*86400);
+        }
+        else if (result.find("hour") != std::string::npos)
+        {
+            std::vector<std::string> splitString;
+            boost::split(splitString, result, boost::is_any_of("hour")); 
+            duration = std::chrono::seconds (std::stoi(splitString.at(0))*3600);
+        }
+        else if (result.find("minute") != std::string::npos)
+        {
+            std::vector<std::string> splitString;
+            boost::split(splitString, result, boost::is_any_of("minute")); 
+            duration = std::chrono::seconds (std::stoi(splitString.at(0))*60);
+        }
+        else if (result.find("second") != std::string::npos)
+        {
+            std::vector<std::string> splitString;
+            boost::split(splitString, result, boost::is_any_of("second")); 
+            duration = std::chrono::seconds (std::stoi(splitString.at(0)));
+        }
+        else
+        {
+            spdlog::warn("Could not unpack retention policy: " + result
+                       + " Using default retention policy");
+        }
+        if (duration.count() > 0)
+        {
+            mRetentionPolicy = duration;
+            spdlog::info("Using retention policy of " + std::to_string(mRetentionPolicy.count()) + " seconds");
+        }
+    }
     explicit ClientImpl(Connection::PostgreSQL &&connection)
     {
         mConnection = std::move(connection);
@@ -300,12 +356,21 @@ public:
                     "Cannot establish database connection");
             }
         }
+        try
+        {
+            getRetentionPolicy();
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::warn("Failed to get retention policy.  Failed with"
+                       + std::string {e.what()});
+        }
         initializeSensors();
     }
     mutable std::mutex mMutex;
     Connection::PostgreSQL mConnection;
     std::map<std::string, int> mSensorIdentifiers;
-    std::chrono::seconds mRetentionPolicy{30*86400}; // TODO select config FROM timescaledb_information.jobs WHERE hypertable_name = '' AND timescaledb_information.jobs.proc_name = 'policy_retention';
+    std::chrono::seconds mRetentionPolicy{365*86400}; // Make it something large like a year
 };
 
 /// Constructor

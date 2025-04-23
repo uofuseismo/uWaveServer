@@ -325,7 +325,6 @@ public:
         constexpr uint64_t sequenceNumber{SL_UNSETSEQUENCE}; // Start at next data
         const char *timeStamp{nullptr};
         auto streamSelectors = options.getStreamSelectors();
-spdlog::critical("fix here");
         for (const auto &selector : streamSelectors)
         {
             try

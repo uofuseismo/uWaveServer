@@ -124,7 +124,7 @@ public:
                                 {
                                     return !mDataQueue.empty();
                                 });
-        *value = mDataQueue.front();
+        *value = std::move(mDataQueue.front());
         mDataQueue.pop();
     }
     /// @brief Copies the value from the front of the bounded queue and
@@ -169,7 +169,7 @@ public:
                                 {
                                     return !mDataQueue.empty();
                                 });
-        std::shared_ptr<T> result(std::make_shared<T> (mDataQueue.front()));
+        std::shared_ptr<T> result{std::make_shared<T> (std::move(mDataQueue.front()))};
         mDataQueue.pop();
         return result;
     }
@@ -185,7 +185,7 @@ public:
         *value = nullptr;
         std::lock_guard<std::mutex> lockGuard(mMutex);
         if (mDataQueue.empty()){return false;}
-        *value = mDataQueue.front();
+        *value = std::move(mDataQueue.front());
         mDataQueue.pop();
         return true;
     }
@@ -203,7 +203,7 @@ public:
             result = nullptr;
             return result;
         }
-        result = std::make_shared<T> (mDataQueue.front());
+        result = std::make_shared<T> (std::move(mDataQueue.front()));
         mDataQueue.pop();
         return result;
     }

@@ -99,9 +99,11 @@ public:
     //        std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
     {
         // Reserve size the queues
-        mShallowDeduplicatorPacketQueue.setCapacity(options.mQueueCapacity);
-        mDeepDeduplicatorPacketQueue.setCapacity(options.mQueueCapacity);
+        mShallowPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
+        mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
+
+        // Create the shallow packet sanitizer
 
         // Create the database connection
         spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
@@ -176,25 +178,25 @@ public:
             spdlog::warn("No data on " + name + "'s packet - skipping");
             return;
         }
-auto name = ::toName(packet);
-spdlog::debug("Adding " + name);
-//        mShallowDeduplicatorPacketQueue.push(std::move(packet));
+        //spdlog::debug("Adding " + ::toName(packet));
+        mShallowPacketSanitizerQueue.push(std::move(packet));
     }
     // Data acquisitions likely will have similar latencies.  So the first
     // thing to do is just check if we're seeing the latest near real-time
     // packet.
     void shallowDeduplicator()
     {
-        spdlog::info("Thread entering shallow deduplicator");
+        spdlog::info("Thread entering shallow packet sanitizer");
         const std::chrono::milliseconds mTimeOut{10};
         while (keepRunning())
         {
             UWaveServer::Packet packet;
             auto gotPacket 
-                = mShallowDeduplicatorPacketQueue.wait_until_and_pop(
+                = mShallowPacketSanitizerQueue.wait_until_and_pop(
                      &packet, mTimeOut);
             if (gotPacket)
             {
+spdlog::info("got: " + ::toName(packet));
                 bool passToDatabaseWriter{true};
                 if (mDataAcquisitionClients.size() > 1)
                 {
@@ -206,22 +208,27 @@ spdlog::debug("Adding " + name);
                 // Do a deep dedpulication
                 if (passToDatabaseWriter)
                 {
-                    mDeepDeduplicatorPacketQueue.push(std::move(packet));
+                    mDeepPacketSanitizerQueue.push(std::move(packet));
                 }
             }
         }
-        spdlog::debug("Thread leaving shallow deduplicator");
+        spdlog::info("Thread leaving shallow packet sanitizer");
     }
     /// Next, we perform a deeper deduplication process.  This helps to
     /// remove fairly latent data.
-    void deepDeplicator()
+    void deepDeduplicator()
     {
         spdlog::info("Thread entering deep deduplicator");
         const std::chrono::milliseconds mTimeOut{10}; 
         while (keepRunning())
         {
             UWaveServer::Packet packet;
-          
+            auto gotPacket 
+                = mDeepPacketSanitizerQueue.wait_until_and_pop(
+                     &packet, mTimeOut);
+            if (gotPacket)
+            {
+            }
         }
         spdlog::debug("Thread leaving deep deduplicator");
     }
@@ -284,7 +291,7 @@ spdlog::debug("Adding " + name);
             // Add packet to shallow deduplicator
             try
             {
-                mShallowDeduplicatorPacketQueue.push(std::move(packet));
+                mShallowPacketSanitizerQueue.push(std::move(packet));
             }
             catch (const std::exception &e)
             {
@@ -312,11 +319,16 @@ spdlog::debug("Adding " + name);
             throw std::runtime_error("Class not initialized");
         }
         stop();
+        setRunning(true);
         for (auto &dataAcquisitionClient : mDataAcquisitionClients)
         {
             spdlog::info("Starting client");
             dataAcquisitionClient->start();
         }
+        mShallowPacketSanitizerThread
+            = std::thread(&::Process::shallowDeduplicator, this);
+        mDeepPacketSanitizerThread
+            = std::thread(&::Process::deepDeduplicator, this);
     }
     /// @brief Stops the processes.
     void stop()
@@ -326,27 +338,35 @@ spdlog::debug("Adding " + name);
         {
             dataAcquisitionClient->stop();
         }
+        if (mShallowPacketSanitizerThread.joinable())
+        {
+            mShallowPacketSanitizerThread.join();
+        }
+        if (mDeepPacketSanitizerThread.joinable())
+        {
+            mDeepPacketSanitizerThread.join();
+        }
         emptyQueues();
     }
     /// @brief Starts the processes
     void emptyQueues()
     {   
-        while (!mShallowDeduplicatorPacketQueue.empty())
+        while (!mShallowPacketSanitizerQueue.empty())
         {   
-            mShallowDeduplicatorPacketQueue.pop();
+            mShallowPacketSanitizerQueue.pop();
         } 
-        while (!mDeepDeduplicatorPacketQueue.empty())
+        while (!mDeepPacketSanitizerQueue.empty())
         {   
-            mDeepDeduplicatorPacketQueue.pop();
+            mDeepPacketSanitizerQueue.pop();
         }   
         while (!mWritePacketToDatabaseQueue.empty())
         {   
             mWritePacketToDatabaseQueue.pop();
-        }   
-    }   
+        }
+    }
 
-    ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowDeduplicatorPacketQueue;
-    ::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepDeduplicatorPacketQueue;
+    ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowPacketSanitizerQueue;
+    ::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
@@ -357,6 +377,8 @@ spdlog::debug("Adding " + name);
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    std::thread mDeepPacketSanitizerThread;
+    std::thread mShallowPacketSanitizerThread;
     std::atomic<bool> mRunning{true};
     bool mInitialized{false};
 };
@@ -385,34 +407,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    /*
-    // Create the database connection
-    UWaveServer::Database::Connection::PostgreSQL databaseConnection;
-    try
-    {
-        spdlog::info("Creating TimeSeriesDB PostgreSQL database connection...");
-        databaseConnection.setUser(programOptions.databaseUser);
-        databaseConnection.setPassword(programOptions.databasePassword);
-        databaseConnection.setAddress(programOptions.databaseHost);
-        databaseConnection.setPort(programOptions.databasePort);
-        databaseConnection.setDatabaseName(programOptions.databaseName);
-	databaseConnection.setApplication(programOptions.applicationName);
-        if (!programOptions.databaseSchema.empty())
-        {
-            databaseConnection.setSchema(programOptions.databaseSchema);
-        }
-        databaseConnection.connect(); 
-        spdlog::info("Connected to " + programOptions.databaseName
-                   + " postgresql database!");
-    }
-    catch (const std::exception &e)
-    {
-        spdlog::error(
-            "Failed to create PostgreSQL database connection; failed with "
-          + std::string {e.what()});
-        return EXIT_FAILURE;
-    }
-    */
     // Create the data source connections
     spdlog::info("Initializing processes...");
     std::unique_ptr<::Process> process; 
