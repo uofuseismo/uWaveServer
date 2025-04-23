@@ -93,6 +93,7 @@ target_link_libraries(uwsDataLoader
 
 add_executable(uwsWebServer
                src/webServer/main.cpp
+               src/webServer/callback.cpp
                src/webServer/listener.cpp)
 if (${ENABLE_SSL})
    target_compile_definitions(uwsWebServer PUBLIC WITH_OPENSSL)
