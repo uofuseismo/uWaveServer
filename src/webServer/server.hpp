@@ -120,6 +120,44 @@ handleRequest(
                                const std::string &,
                                const boost::beast::http::verb)> &callback)
 {
+
+//std::cout << request.method() << std::endl;
+//std::cout << request.method_string() << std::endl;
+//std::cout << request.target() << std::endl; // THIS IS IT!
+//std::cout << request.version() << std::endl;
+/*
+std::cout << "------------------------" << std::endl;
+std::cout << request.base() << std::endl;
+std::cout << "------------------------" << std::endl;
+std::cout << request.body() << std::endl;
+std::cout << "------------------------" << std::endl;
+*/
+
+/*
+    for (auto&& f : request)
+    {
+        spdlog::info(std::string{f.name_string()} + std::string {": "} + std::string{f.value()});
+    }
+std::cout << "------------------------" << std::endl;
+std::cout << request["Referer"] << std::endl;
+std::cout << "++++++++++++++++++++++++" << std::endl;
+*/
+/*
+//std::cout << request.base() << std::endl;
+//std::cout << request.body() << std::endl;
+
+    std::string uri;
+    try
+    {
+        uri = std::string {request["Referer"]};
+    }
+    catch (...)
+    {
+
+    }
+    spdlog::info(uri);
+*/
+
     //std::cout << request.base() << std::endl;
     //std::cout << request.body() << std::endl;
     // Returns a bad request response
@@ -311,7 +349,6 @@ handleRequest(
     // Process the put/post/get request
     if (request.method() == boost::beast::http::verb::get)
     {
-/*
         try
         {
             auto payload = callback(request.base(),
@@ -328,7 +365,9 @@ handleRequest(
             result.set(boost::beast::http::field::server,
                        BOOST_BEAST_VERSION_STRING);
             result.set(boost::beast::http::field::content_type,
-                       "application/json");
+                       "application/application/json");
+            //result.set(boost::beast::http::field::content_type,
+            //           "application/octet-stream");
             result.keep_alive(false); //request.keep_alive());
             result.body() = payload;
             result.prepare_payload();
@@ -350,7 +389,6 @@ handleRequest(
         {
             return serverError(e.what());
         }
-*/
     }
     return serverError("Unhandled method");
 }

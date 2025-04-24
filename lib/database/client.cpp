@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -38,20 +39,12 @@ std::string toName(const UWaveServer::Packet &packet)
 
 template<typename T>
 void fill(const int nSamples,
-          const int sensorIdentifier,
-          const int64_t packetNumber,
           const double startTime,
           const double samplingRate,
           const T *valuesIn,
-          std::vector<int> &sensorIdentifiers,
-          std::vector<int64_t> &packetNumbers,
-          std::vector<double> &samplingRates,
           std::vector<double> &times,
           std::vector<T> &values)
 {
-    sensorIdentifiers.resize(nSamples, sensorIdentifier);
-    packetNumbers.resize(nSamples, packetNumber);
-    samplingRates.resize(nSamples, samplingRate);
     values.resize(nSamples);
     std::copy(valuesIn, valuesIn + nSamples, values.begin()); 
     auto samplingPeriod = 1./samplingRate;
@@ -102,7 +95,7 @@ public:
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession());
         *session <<
-            "COALESCE(SELECT identifier FROM sensors WHERE network = :network AND station = :station AND channel = :channel AND location_code = :locationCode), -1)",
+            "SELECT COALESCE( (SELECT identifier FROM sensors WHERE network = :network AND station = :station AND channel = :channel AND location_code = :locationCode), -1)",
             soci::use(network),
             soci::use(station),
             soci::use(channel),
@@ -115,7 +108,7 @@ public:
             {
             soci::transaction tr(*session);
             *session <<
-                "COALESCE(INSERT INTO sensors (network, station, channel, location_code, high_sample_rate) VALUES (:network, :station, :channel, :locationCode) RETURNING identifier, -1)",
+                "INSERT INTO sensors (network, station, channel, location_code) VALUES (:network, :station, :channel, :locationCode) RETURNING identifier",
                 soci::use(network),
                 soci::use(station),
                 soci::use(channel),
@@ -129,6 +122,7 @@ public:
             }
             mSensorIdentifiers.insert(std::pair {name, identifier}); 
         }
+        return identifier; 
     }
     void initializeSensors()
     {
@@ -172,7 +166,6 @@ public:
             spdlog::debug(std::to_string(mSensorIdentifiers.size())
                         + " sensors in map");
         }
-             
     }
     void insert(const Packet &packet)
     {
@@ -192,90 +185,147 @@ public:
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
-        }   
-        auto packetNumber = getNextPacketNumber(); // Throws
+        }
+        int batchSize = 512;
+#ifndef NDEBUG
+        assert(batchSize > 0);
+#endif
         auto sensorIdentifier = getSensorIdentifier(packet); // Throws
+        if (sensorIdentifier < 0)
+        {
+            throw std::runtime_error("Could not obtain sensor identifier");
+        }
+        int64_t packetNumber = getNextPacketNumber(); // Throws
         auto nSamples = packet.size(); 
         auto dataType = packet.getDataType();
-        std::vector<int64_t> packetNumbers;
-        std::vector<int> sensorIdentifiers;
-        std::vector<double> times;
-        std::vector<double> samplingRates;
+        auto startTime = packet.getStartTime().count()*1.e-6;
+        auto samplingRate = packet.getSamplingRate();
+        auto samplingPeriod = 1./samplingRate;
+        int nBatches = nSamples/batchSize + 1;
         if (dataType == UWaveServer::Packet::DataType::Integer32)
         {
-            // N.B. we want to do a bulk insert
-            std::vector<int> values;
-            ::fill(nSamples,
-                   sensorIdentifier,
-                   packetNumber,
-                   packet.getStartTime().count()*1.e-6,
-                   packet.getSamplingRate(),
-                   static_cast<const int *> (packet.data()),
-                   sensorIdentifiers,
-                   packetNumbers, 
-                   samplingRates,
-                   times,
-                   values);
+            spdlog::info("Writing "
+                        + std::to_string(nSamples)
+                        + " samples for packet " + ::toName(packet));
+            // N.B. we want to do a bulk insert.  The ON CONFLICT DO NOTHING
+            // means that the old data perserveres in case the
+            // (identifier, time) already exists.  This is an optimization
+            // that also prevents the entire batch from failing in the case
+            // of one bad sample.
+            auto values = static_cast<const int *> (packet.data());
             {
             soci::transaction tr(*session);
+            double timeToWrite{startTime};
+            int valueToWrite{0};
             soci::statement statement = (session->prepare <<
-                "INSERT INTO internal.integer32_waveforms(sensor_identifier, time, sampling_rate, packet_number, value) VALUES(:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value)",
-                soci::use(sensorIdentifiers),
-                soci::use(times),
-                soci::use(samplingRates),
-                soci::use(packetNumbers),
-                soci::use(values)); 
-            for (int i = 0; i != nSamples; ++i)
+                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifier),
+                soci::use(timeToWrite),
+                soci::use(samplingRate),
+                soci::use(packetNumber),
+                soci::use(valueToWrite)); 
+            for (int batch = 0; batch < nBatches; ++batch)
             {
+                int i1 = batch*batchSize;
+                int i2 = std::min(i1 + batchSize, nSamples);
+#ifndef NDEBUG
+                assert(i2 <= nSamples);
+#endif
+                for (int i = i1; i < i2; ++i)
+                {
+                    timeToWrite = startTime + i*samplingPeriod;
+                    valueToWrite = values[i];
+std::cout << std::setprecision(16) << i << " " << timeToWrite << " " << valueToWrite << std::endl;
+                }
                 statement.execute(true);
             }
             tr.commit();
             } 
+            spdlog::info("Finished writing integer packet");
         }
         else if (dataType == UWaveServer::Packet::DataType::Float)
         {
-            std::vector<float> values;
-            ::fill(nSamples,
-                   sensorIdentifier,
-                   packetNumber,
-                   packet.getStartTime().count()*1.e-6,
-                   packet.getSamplingRate(),
-                   static_cast<const float *> (packet.data()),
-                   sensorIdentifiers,
-                   packetNumbers,
-                   samplingRates,
-                   times,
-                   values);
+            auto values = static_cast<const float *> (packet.data());
+            {
+            soci::transaction tr(*session);
+            double timeToWrite{startTime};
+            double valueToWrite{0}; // SOCI doesn't have floats
+            soci::statement statement = (session->prepare <<
+                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifier),
+                soci::use(timeToWrite),
+                soci::use(samplingRate),
+                soci::use(packetNumber),
+                soci::use(valueToWrite)); 
+            for (int batch = 0; batch < nBatches; ++batch)
+            {
+                int i1 = batch*batchSize;
+                int i2 = std::min(i1 + batchSize, nSamples);
+                for (int i = i1; i < i2; ++i)
+                {
+                    timeToWrite = startTime + i*samplingPeriod;
+                    valueToWrite = static_cast<double> (values[i]);
+                }
+                statement.execute(true);
+            }
+            tr.commit();
+            }
         }
         else if (dataType == UWaveServer::Packet::DataType::Double)
         {
-            std::vector<double> values;
-            ::fill(nSamples,
-                   sensorIdentifier,
-                   packetNumber,
-                   packet.getStartTime().count()*1.e-6,
-                   packet.getSamplingRate(),
-                   static_cast<const double *> (packet.data()),
-                   sensorIdentifiers,
-                   packetNumbers,
-                   samplingRates,
-                   times,
-                   values);
+            auto values = static_cast<const double *> (packet.data());
+            {
+            soci::transaction tr(*session);
+            double timeToWrite{startTime};
+            double valueToWrite{0};
+            soci::statement statement = (session->prepare <<
+                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifier),
+                soci::use(timeToWrite),
+                soci::use(samplingRate),
+                soci::use(packetNumber),
+                soci::use(valueToWrite));
+            for (int batch = 0; batch < nBatches; ++batch)
+            {
+                int i1 = batch*batchSize;
+                int i2 = std::min(i1 + batchSize, nSamples);
+                for (int i = i1; i < i2; ++i)
+                {
+                    timeToWrite = startTime + i*samplingPeriod;
+                    valueToWrite = values[i];
+                }
+                statement.execute(true);
+            }
+            tr.commit();
+            }
         }
         else if (dataType == UWaveServer::Packet::DataType::Integer64)
         {
-            std::vector<int64_t> values;
-            ::fill(nSamples,
-                   sensorIdentifier,
-                   packetNumber,
-                   packet.getStartTime().count()*1.e-6,
-                   packet.getSamplingRate(),
-                   static_cast<const int64_t *> (packet.data()),
-                   sensorIdentifiers,
-                   packetNumbers,
-                   samplingRates,
-                   times,
-                   values);
+            auto values = static_cast<const int64_t *> (packet.data());
+            {
+            soci::transaction tr(*session);
+            double timeToWrite{startTime};
+            int64_t valueToWrite{0};
+            soci::statement statement = (session->prepare <<
+                "INSERT INTO sample(sensor_identifier, time, sampling_rate, paccket_number, value_i64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifier),
+                soci::use(timeToWrite),
+                soci::use(samplingRate),
+                soci::use(packetNumber),
+                soci::use(valueToWrite));
+            for (int batch = 0; batch < nBatches; ++batch)
+            {
+                int i1 = batch*batchSize;
+                int i2 = std::min(i1 + batchSize, nSamples);
+                for (int i = i1; i < i2; ++i)
+                {
+                    timeToWrite = startTime + i*samplingPeriod;
+                    valueToWrite = values[i];
+                }
+                statement.execute(true);
+            }
+            tr.commit();
+            }
         }
         else
         {
@@ -287,7 +337,7 @@ public:
         }
 
     }
-    void getRetentionPolicy()
+    void getRetentionDuration()
     {
         auto session 
             = reinterpret_cast<soci::session *> (mConnection.getSession());
@@ -339,8 +389,10 @@ public:
         }
         if (duration.count() > 0)
         {
-            mRetentionPolicy = duration;
-            spdlog::info("Using retention policy of " + std::to_string(mRetentionPolicy.count()) + " seconds");
+            mRetentionDuration = duration;
+            spdlog::info("Using retention duration of "
+                       + std::to_string(mRetentionDuration.count())
+                       + " seconds");
         }
     }
     explicit ClientImpl(Connection::PostgreSQL &&connection)
@@ -358,11 +410,11 @@ public:
         }
         try
         {
-            getRetentionPolicy();
+            getRetentionDuration();
         }
         catch (const std::exception &e)
         {
-            spdlog::warn("Failed to get retention policy.  Failed with"
+            spdlog::warn("Failed to get retention duration.  Failed with"
                        + std::string {e.what()});
         }
         initializeSensors();
@@ -370,7 +422,7 @@ public:
     mutable std::mutex mMutex;
     Connection::PostgreSQL mConnection;
     std::map<std::string, int> mSensorIdentifiers;
-    std::chrono::seconds mRetentionPolicy{365*86400}; // Make it something large like a year
+    std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
 };
 
 /// Constructor
@@ -424,5 +476,24 @@ void Client::write(const UWaveServer::Packet &packet)
         spdlog::warn("Packet has not data - returning");
         return;
     }
+    if (packet.getDataType() == UWaveServer::Packet::DataType::Unknown)
+    {
+        throw std::runtime_error("Packet's data type is unknown");
+    }
+    // Expired data?
+    auto now = std::chrono::high_resolution_clock::now();
+    auto endTime = packet.getEndTime();
+    std::chrono::microseconds oldestAllowableTime
+        = std::chrono::duration_cast<std::chrono::microseconds> 
+          (now.time_since_epoch()) 
+        - std::chrono::duration_cast<std::chrono::microseconds> 
+          (pImpl->mRetentionDuration);
+    if (endTime < oldestAllowableTime)
+    {
+        spdlog::warn(::toName(packet) + "'s data has expired; skipping");
+        return;
+    } 
+    // Try to write it 
     pImpl->insert(packet);
 }
+

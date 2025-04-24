@@ -14,7 +14,7 @@ struct ProgramOptions
     boost::asio::ip::address address{boost::asio::ip::make_address("127.0.0.1")};
     std::filesystem::path documentRoot{"./"}; 
     int nThreads{1};
-    unsigned short port{8050};
+    unsigned short port{8051};
 };
 
 int main()

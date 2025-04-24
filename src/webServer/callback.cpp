@@ -1,3 +1,6 @@
+#include <iostream>
+#include <boost/url.hpp>
+#include <spdlog/spdlog.h>
 #include "uWaveServer/database/client.hpp"
 #include "callback.hpp"
 
@@ -153,14 +156,39 @@ std::string Callback::operator()(
     const std::string &message,
     const boost::beast::http::verb httpRequestType) const
 {
-
+std::cout << "---------------------------" << std::endl;
+std::cout << requestHeader.target() << std::endl;
+std::cout << message << std::endl;
+std::cout << "---------------------------" << std::endl;
     // I only know how to handle these types of requests
     if (httpRequestType != boost::beast::http::verb::get)
     {
         throw std::runtime_error("Unhandled http request verb");
     }
+    // Try to parse the URI from the header
+    std::string network;
+    std::string station;
+    std::string channel;
+    std::string locationCode;
+    try
+    {
+for(auto &&it : requestHeader)
+{
+std::cout << "header: " << it.name() << " " << it.value() << std::endl;
+}
+        auto uri = "http://" + std::string{requestHeader["Host"]};
+        auto parsedURI = boost::urls::parse_uri(uri);//requestHeader["Host"]);
+        for (auto param : parsedURI->params())
+        {
+            std::cout << param.key << " " << param.value << std::endl;
+        }
+    }
+    catch (...)
+    {
 
-    return "";
+    }
+    // Maybe it came from curl
+    return "{\"win\" : \"yes\"}";
 
 }
 

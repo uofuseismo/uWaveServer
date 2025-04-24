@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/packet.hpp"
+#include "uWaveServer/packetSanitizer.hpp"
+#include "uWaveServer/packetSanitizerOptions.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
@@ -77,6 +79,7 @@ int getIntegerEnvironmentVariable(const std::string &variable, int defaultValue)
 
 struct ProgramOptions
 {
+    UWaveServer::PacketSanitizerOptions mPacketSanitizerOptions;
     std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
     std::string applicationName{"uwsDataLoader"};
     std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
@@ -100,10 +103,13 @@ public:
     {
         // Reserve size the queues
         mShallowPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
-        mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
+        //mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
 
         // Create the shallow packet sanitizer
+        mPacketSanitizer
+            = std::make_unique<UWaveServer::PacketSanitizer>
+              (options.mPacketSanitizerOptions);
 
         // Create the database connection
         spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
@@ -196,24 +202,28 @@ public:
                      &packet, mTimeOut);
             if (gotPacket)
             {
-spdlog::info("got: " + ::toName(packet));
-                bool passToDatabaseWriter{true};
-                if (mDataAcquisitionClients.size() > 1)
+                bool allow{true};
+                try
                 {
-                    // Is this new?
-                    bool isNew{false};
-
-                    passToDatabaseWriter = isNew;
+                    if (mPacketSanitizer)
+                    {
+                        allow = mPacketSanitizer->allow(packet);
+                    }
                 }
-                // Do a deep dedpulication
-                if (passToDatabaseWriter)
+                catch (const std::exception &e)
                 {
-                    mDeepPacketSanitizerQueue.push(std::move(packet));
+                    spdlog::warn("Failed to sanitize packet because "
+                               + std::string {e.what()} + "; skipping");
+                }
+                if (allow)
+                {
+                    mWritePacketToDatabaseQueue.push(std::move(packet));
                 }
             }
         }
         spdlog::info("Thread leaving shallow packet sanitizer");
     }
+/*
     /// Next, we perform a deeper deduplication process.  This helps to
     /// remove fairly latent data.
     void deepDeduplicator()
@@ -232,6 +242,7 @@ spdlog::info("got: " + ::toName(packet));
         }
         spdlog::debug("Thread leaving deep deduplicator");
     }
+*/
     /// Finally, we write this to the database.  This is where the real compute
     /// work happens (on postgres's end).
     void writePacketToDatabase()
@@ -327,8 +338,10 @@ spdlog::info("got: " + ::toName(packet));
         }
         mShallowPacketSanitizerThread
             = std::thread(&::Process::shallowDeduplicator, this);
-        mDeepPacketSanitizerThread
-            = std::thread(&::Process::deepDeduplicator, this);
+        //mDeepPacketSanitizerThread
+        //    = std::thread(&::Process::deepDeduplicator, this);
+        mDatabaseWriterThread
+            = std::thread(&::Process::writePacketToDatabase, this);
     }
     /// @brief Stops the processes.
     void stop()
@@ -342,9 +355,13 @@ spdlog::info("got: " + ::toName(packet));
         {
             mShallowPacketSanitizerThread.join();
         }
-        if (mDeepPacketSanitizerThread.joinable())
+        //if (mDeepPacketSanitizerThread.joinable())
+        //{
+        //    mDeepPacketSanitizerThread.join();
+        //}
+        if (mDatabaseWriterThread.joinable())
         {
-            mDeepPacketSanitizerThread.join();
+            mDatabaseWriterThread.join();
         }
         emptyQueues();
     }
@@ -355,10 +372,10 @@ spdlog::info("got: " + ::toName(packet));
         {   
             mShallowPacketSanitizerQueue.pop();
         } 
-        while (!mDeepPacketSanitizerQueue.empty())
-        {   
-            mDeepPacketSanitizerQueue.pop();
-        }   
+        //while (!mDeepPacketSanitizerQueue.empty())
+        //{   
+        //    mDeepPacketSanitizerQueue.pop();
+        //}   
         while (!mWritePacketToDatabaseQueue.empty())
         {   
             mWritePacketToDatabaseQueue.pop();
@@ -366,9 +383,10 @@ spdlog::info("got: " + ::toName(packet));
     }
 
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowPacketSanitizerQueue;
-    ::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
+    //::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
+    std::unique_ptr<UWaveServer::PacketSanitizer> mPacketSanitizer{nullptr};
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
         mDataAcquisitionClients;
     std::function<void(std::vector<UWaveServer::Packet> &&packet)>
@@ -377,8 +395,10 @@ spdlog::info("got: " + ::toName(packet));
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
-    std::thread mDeepPacketSanitizerThread;
     std::thread mShallowPacketSanitizerThread;
+    //std::thread mDeepPacketSanitizerThread;
+    std::thread mDatabaseWriterThread;
+    std::chrono::seconds mMaximumLatency{-1};
     std::atomic<bool> mRunning{true};
     bool mInitialized{false};
 };
@@ -560,6 +580,18 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     // Parse the initialization file
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
+
+    UWaveServer::PacketSanitizerOptions packetSanitizerOptions; 
+    packetSanitizerOptions.setMaximumLatency(std::chrono::seconds {30});
+    packetSanitizerOptions.setMaximumFutureTime(std::chrono::seconds {0});
+    packetSanitizerOptions.setBadDataLoggingInterval(std::chrono::seconds {-1});
+    auto maximumLatency = static_cast<int> (packetSanitizerOptions.getMaximumLatency().count()); 
+    auto maximumFutureTime = static_cast<int> (packetSanitizerOptions.getMaximumFutureTime().count());
+    maximumLatency = propertyTree.get<int> ("PacketSanitizer.maximumLatency", maximumLatency);
+    packetSanitizerOptions.setMaximumLatency(std::chrono::seconds {maximumLatency});
+    maximumFutureTime = propertyTree.get<int> ("PacketSanitizer.maximumFutureTime", maximumFutureTime);
+    packetSanitizerOptions.setMaximumFutureTime(std::chrono::seconds {maximumFutureTime});
+    options.mPacketSanitizerOptions = packetSanitizerOptions;
 
     if (propertyTree.get_optional<std::string> ("SEEDLink.address"))
     {

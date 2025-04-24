@@ -17,7 +17,7 @@ endif()
 find_package(spdlog REQUIRED)
 find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
 find_package(PostgreSQL REQUIRED)
-find_package(Boost COMPONENTS program_options date_time REQUIRED)
+find_package(Boost COMPONENTS program_options date_time url REQUIRED)
 find_package(MiniSEED REQUIRED)
 find_package(SEEDLink REQUIRED)
 find_package(Earthworm)
@@ -107,7 +107,7 @@ target_include_directories(uwsWebServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsWebServer
-                      PRIVATE uWaveServer spdlog::spdlog Boost::program_options)# SOCI::Core SOCI::PostgreSQL)
+                      PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url)# SOCI::Core SOCI::PostgreSQL)
 
 ##########################################################################################
 #                                     CPACK Packaging                                    #
