@@ -89,6 +89,7 @@ struct ProgramOptions
     std::string databaseSchema{"ynp"};//::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA")};
     int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
     int mQueueCapacity{8092}; // Want this big enough but not too big
+    int mDatabaseWriterThreads{4};  
 };
 
 ProgramOptions parseIniFile(const std::string &iniFile);
@@ -101,6 +102,7 @@ public:
     explicit Process(const ProgramOptions &options)
     //        std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
     {
+        nDatabaseWriterThreads = options.mDatabaseWriterThreads;
         // Reserve size the queues
         mShallowPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         //mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
@@ -113,21 +115,26 @@ public:
 
         // Create the database connection
         spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
-        UWaveServer::Database::Connection::PostgreSQL databaseConnection;
-        databaseConnection.setUser(options.databaseUser);
-        databaseConnection.setPassword(options.databasePassword);
-        databaseConnection.setAddress(options.databaseHost);
-        databaseConnection.setPort(options.databasePort);
-        databaseConnection.setDatabaseName(options.databaseName);
-        databaseConnection.setApplication(options.applicationName);
-        if (!options.databaseSchema.empty())
+        for (int iThread = 0; iThread < nDatabaseWriterThreads; ++iThread)
         {
-            databaseConnection.setSchema(options.databaseSchema);
+            UWaveServer::Database::Connection::PostgreSQL databaseConnection;
+            databaseConnection.setUser(options.databaseUser);
+            databaseConnection.setPassword(options.databasePassword);
+            databaseConnection.setAddress(options.databaseHost);
+            databaseConnection.setPort(options.databasePort);
+            databaseConnection.setDatabaseName(options.databaseName);
+            databaseConnection.setApplication(options.applicationName
+                                            + "-" + std::to_string(iThread));
+            if (!options.databaseSchema.empty())
+            {
+                databaseConnection.setSchema(options.databaseSchema);
+            }
+            databaseConnection.connect(); 
+            auto databaseClient 
+                = std::make_unique<UWaveServer::Database::Client>
+                  (std::move(databaseConnection));
+            mDatabaseClients.push_back(std::move(databaseClient)); 
         }
-        databaseConnection.connect(); 
-        mDatabaseClient 
-            = std::make_unique<UWaveServer::Database::Client>
-              (std::move(databaseConnection));
 
         // Create data clients
         spdlog::debug("Creating SEEDLink clients...");
@@ -245,10 +252,13 @@ public:
 */
     /// Finally, we write this to the database.  This is where the real compute
     /// work happens (on postgres's end).
-    void writePacketToDatabase()
+    void writePacketToDatabase(int iThread)
     {
-        spdlog::info("Thread entering database writer");
+        spdlog::info("Thread " + std::to_string(iThread)
+                   + " entering database writer");
         const std::chrono::milliseconds mTimeOut{10};
+int printEvery{0};
+        double averageTime{0};
         while (keepRunning())
         {
             UWaveServer::Packet packet;
@@ -259,7 +269,23 @@ public:
             {
                 try
                 {
-                    mDatabaseClient->write(packet);
+                    auto t1 = std::chrono::high_resolution_clock::now(); 
+                    mDatabaseClients.at(iThread)->write(packet);
+                    auto t2 = std::chrono::high_resolution_clock::now();
+                    double duration
+                        = std::chrono::duration_cast<std::chrono::microseconds>
+                          (t2 - t1).count()*1.e-6;
+                    averageTime = averageTime + duration;
+                    printEvery = printEvery + 1;
+                    if (printEvery > 100)
+                    {
+                        spdlog::info("Average packet write time on thread " + std::to_string(iThread) //+ ::toName(packet)
+                                   + " took: "
+                                   + std::to_string (averageTime/printEvery)
+                                   + " seconds");
+                        printEvery = 0;
+                        averageTime = 0;
+                    }
                 }
                 catch (const std::exception &e)
                 {
@@ -340,8 +366,13 @@ public:
             = std::thread(&::Process::shallowDeduplicator, this);
         //mDeepPacketSanitizerThread
         //    = std::thread(&::Process::deepDeduplicator, this);
-        mDatabaseWriterThread
-            = std::thread(&::Process::writePacketToDatabase, this);
+        mDatabaseWriterThreads.clear();
+        for (int i = 0; i < nDatabaseWriterThreads; ++i)
+        {
+            auto databaseWriterThread
+               = std::thread(&::Process::writePacketToDatabase, this, i);
+            mDatabaseWriterThreads.push_back(std::move(databaseWriterThread));
+        }
     }
     /// @brief Stops the processes.
     void stop()
@@ -359,10 +390,16 @@ public:
         //{
         //    mDeepPacketSanitizerThread.join();
         //}
-        if (mDatabaseWriterThread.joinable())
+        for (auto &databaseWriterThread : mDatabaseWriterThreads)
         {
-            mDatabaseWriterThread.join();
+            if (databaseWriterThread.joinable())
+            {
+                databaseWriterThread.join();
+            }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds {50});
+        mDatabaseWriterThreads.clear();
+        mWriterThroughPut.clear();
         emptyQueues();
     }
     /// @brief Starts the processes
@@ -385,7 +422,7 @@ public:
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowPacketSanitizerQueue;
     //::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
-    std::unique_ptr<UWaveServer::Database::Client> mDatabaseClient{nullptr};
+    std::vector<std::unique_ptr<UWaveServer::Database::Client>> mDatabaseClients;//{nullptr};
     std::unique_ptr<UWaveServer::PacketSanitizer> mPacketSanitizer{nullptr};
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
         mDataAcquisitionClients;
@@ -395,11 +432,12 @@ public:
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    std::vector<std::thread> mDatabaseWriterThreads;
+    std::vector<std::pair<int, double>> mWriterThroughPut;
     std::thread mShallowPacketSanitizerThread;
-    //std::thread mDeepPacketSanitizerThread;
-    std::thread mDatabaseWriterThread;
     std::chrono::seconds mMaximumLatency{-1};
     std::atomic<bool> mRunning{true};
+    int nDatabaseWriterThreads{4};
     bool mInitialized{false};
 };
 
@@ -442,7 +480,7 @@ int main(int argc, char *argv[])
     }
 
     process->start();
-    std::this_thread::sleep_for(std::chrono::seconds {10}); 
+    std::this_thread::sleep_for(std::chrono::seconds {240}); 
     process->stop();
 
     // Initialize the utility that will map from the acquisition to the database 
@@ -580,6 +618,16 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     // Parse the initialization file
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
+
+    options.mDatabaseWriterThreads
+       = propertyTree.get<int> ("uwsDataLoader.nDatabaseWriterThreads",
+                                options.mDatabaseWriterThreads);
+    if (options.mDatabaseWriterThreads < 1 ||
+        options.mDatabaseWriterThreads > 2048)
+    {
+        throw std::invalid_argument(
+            "Number of database threads must be between 1 and 2048");
+    }
 
     UWaveServer::PacketSanitizerOptions packetSanitizerOptions; 
     packetSanitizerOptions.setMaximumLatency(std::chrono::seconds {30});

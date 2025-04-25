@@ -37,14 +37,14 @@ std::string toName(const UWaveServer::Packet &packet)
     return ::toName(network, station, channel, locationCode);
 }
 
-template<typename T>
+template<typename T, typename U>
 void fill(const int nFill,
           const int offset,
           const double startTime,
           const double samplingPeriod,
           const T *valuesIn,
           std::vector<double> &times,
-          std::vector<T> &values)
+          std::vector<U> &values)
 {
 #ifndef NDEBUG
     assert(nFill == static_cast<int> (values.size()));
@@ -91,11 +91,16 @@ public:
         auto channel = packet.getChannel();
         auto locationCode = packet.getLocationCode();
         auto name = ::toName(network, station, channel, locationCode);
+        // Maybe we already have this channel 
+        {
+        std::scoped_lock lock(mMutex);
         auto index = mSensorIdentifiers.find(name);
         if (index != mSensorIdentifiers.end())
         {
             return index->second;
         }
+        }
+        // Okay - let's look in the database for it
         int identifier{-1};
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession());
@@ -106,10 +111,9 @@ public:
             soci::use(channel),
             soci::use(locationCode),
             soci::into(identifier);
-        // It doesn't exist so add it
+        // This channel doesn't exist in the database so add it
         if (identifier ==-1)
         {
-            //auto samplingRate = packet.getSamplingRate();
             {
             soci::transaction tr(*session);
             *session <<
@@ -125,7 +129,10 @@ public:
             {
                 throw std::runtime_error("Could not add " + name + " to sensors");
             }
+            {
+            std::scoped_lock lock(mMutex);
             mSensorIdentifiers.insert(std::pair {name, identifier}); 
+            }
         }
         return identifier; 
     }
@@ -259,27 +266,38 @@ public:
         }
         else if (dataType == UWaveServer::Packet::DataType::Float)
         {
-            auto values = static_cast<const float *> (packet.data());
+            auto valuesPtr = static_cast<const float *> (packet.data());
             {
             soci::transaction tr(*session);
-            double timeToWrite{startTime};
-            double valueToWrite{0}; // SOCI doesn't have floats
-            soci::statement statement = (session->prepare <<
-                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifier),
-                soci::use(timeToWrite),
-                soci::use(samplingRate),
-                soci::use(packetNumber),
-                soci::use(valueToWrite)); 
             for (int batch = 0; batch < nBatches; ++batch)
             {
                 int i1 = batch*batchSize;
                 int i2 = std::min(i1 + batchSize, nSamples);
-                for (int i = i1; i < i2; ++i)
-                {
-                    timeToWrite = startTime + i*samplingPeriod;
-                    valueToWrite = static_cast<double> (values[i]);
-                }
+#ifndef NDEBUG
+                assert(i2 <= nSamples);
+#endif
+                auto nFill = i2 - i1; 
+                if (nFill < 1){break;}
+
+                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
+                std::vector<double> samplingRates(nFill, samplingRate);
+                std::vector<int64_t> packetNumbers(nFill, packetNumber);
+                std::vector<double> times(nFill);
+                std::vector<double> values(nFill);
+                ::fill(nFill,
+                       i1,
+                       startTime,
+                       samplingPeriod,
+                       valuesPtr,
+                       times, values);
+                // Create the insert statement
+                soci::statement statement = (session->prepare <<
+                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifiers),
+                soci::use(times),
+                soci::use(samplingRates),
+                soci::use(packetNumbers),
+                soci::use(values)); 
                 statement.execute(true);
             }
             tr.commit();
@@ -287,27 +305,38 @@ public:
         }
         else if (dataType == UWaveServer::Packet::DataType::Double)
         {
-            auto values = static_cast<const double *> (packet.data());
+            auto valuesPtr = static_cast<const double *> (packet.data());
             {
             soci::transaction tr(*session);
-            double timeToWrite{startTime};
-            double valueToWrite{0};
-            soci::statement statement = (session->prepare <<
-                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifier),
-                soci::use(timeToWrite),
-                soci::use(samplingRate),
-                soci::use(packetNumber),
-                soci::use(valueToWrite));
             for (int batch = 0; batch < nBatches; ++batch)
             {
                 int i1 = batch*batchSize;
                 int i2 = std::min(i1 + batchSize, nSamples);
-                for (int i = i1; i < i2; ++i)
-                {
-                    timeToWrite = startTime + i*samplingPeriod;
-                    valueToWrite = values[i];
-                }
+#ifndef NDEBUG
+                assert(i2 <= nSamples);
+#endif
+                auto nFill = i2 - i1; 
+                if (nFill < 1){break;}
+
+                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
+                std::vector<double> samplingRates(nFill, samplingRate);
+                std::vector<int64_t> packetNumbers(nFill, packetNumber);
+                std::vector<double> times(nFill);
+                std::vector<double> values(nFill);
+                ::fill(nFill,
+                       i1,
+                       startTime,
+                       samplingPeriod,
+                       valuesPtr,
+                       times, values);
+                // Create the insert statement
+                soci::statement statement = (session->prepare <<
+                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifiers),
+                soci::use(times),
+                soci::use(samplingRates),
+                soci::use(packetNumbers),
+                soci::use(values)); 
                 statement.execute(true);
             }
             tr.commit();
@@ -315,27 +344,38 @@ public:
         }
         else if (dataType == UWaveServer::Packet::DataType::Integer64)
         {
-            auto values = static_cast<const int64_t *> (packet.data());
+            auto valuesPtr = static_cast<const int64_t *> (packet.data());
             {
             soci::transaction tr(*session);
-            double timeToWrite{startTime};
-            int64_t valueToWrite{0};
-            soci::statement statement = (session->prepare <<
-                "INSERT INTO sample(sensor_identifier, time, sampling_rate, paccket_number, value_i64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifier),
-                soci::use(timeToWrite),
-                soci::use(samplingRate),
-                soci::use(packetNumber),
-                soci::use(valueToWrite));
             for (int batch = 0; batch < nBatches; ++batch)
             {
                 int i1 = batch*batchSize;
                 int i2 = std::min(i1 + batchSize, nSamples);
-                for (int i = i1; i < i2; ++i)
-                {
-                    timeToWrite = startTime + i*samplingPeriod;
-                    valueToWrite = values[i];
-                }
+#ifndef NDEBUG
+                assert(i2 <= nSamples);
+#endif
+                auto nFill = i2 - i1; 
+                if (nFill < 1){break;}
+
+                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
+                std::vector<double> samplingRates(nFill, samplingRate);
+                std::vector<int64_t> packetNumbers(nFill, packetNumber);
+                std::vector<double> times(nFill);
+                std::vector<int64_t> values(nFill);
+                ::fill(nFill,
+                       i1,
+                       startTime,
+                       samplingPeriod,
+                       valuesPtr,
+                       times, values);
+                // Create the insert statement
+                soci::statement statement = (session->prepare <<
+                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifiers),
+                soci::use(times),
+                soci::use(samplingRates),
+                soci::use(packetNumbers),
+                soci::use(values)); 
                 statement.execute(true);
             }
             tr.commit();
