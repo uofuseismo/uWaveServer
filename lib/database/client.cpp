@@ -15,6 +15,17 @@ using namespace UWaveServer::Database;
 namespace
 {
 
+/// @brief Converts an input string to an upper-case string with no blanks.
+/// @param[in] s  The string to convert.
+/// @result The input string without blanks and in all capital letters.
+std::string convertString(const std::string &s) 
+{
+    auto temp = s;
+    temp.erase(std::remove(temp.begin(), temp.end(), ' '), temp.end());
+    std::transform(temp.begin(), temp.end(), temp.begin(), ::toupper);
+    return temp;
+}
+
 std::string toName(const std::string &network,
                    const std::string &station,
                    const std::string &channel,
@@ -84,12 +95,11 @@ public:
         }
         return sequenceValue;
     }
-    [[nodiscard]] int getSensorIdentifier(const Packet &packet)
+    [[nodiscard]] int getSensorIdentifier(const std::string &network,
+                                          const std::string &station,
+                                          const std::string &channel,
+                                          const std::string &locationCode) const
     {
-        auto network = packet.getNetwork();
-        auto station = packet.getStation();
-        auto channel = packet.getChannel();
-        auto locationCode = packet.getLocationCode();
         auto name = ::toName(network, station, channel, locationCode);
         // Maybe we already have this channel 
         {
@@ -136,6 +146,14 @@ public:
         }
         return identifier; 
     }
+    [[nodiscard]] int getSensorIdentifier(const Packet &packet) const
+    {   
+        auto network = packet.getNetwork();
+        auto station = packet.getStation();
+        auto channel = packet.getChannel();
+        auto locationCode = packet.getLocationCode();
+        return getSensorIdentifier(network, station, channel, locationCode);
+    }
     void initializeSensors()
     {
         std::vector<std::string> names;
@@ -179,14 +197,66 @@ public:
                         + " sensors in map");
         }
     }
+    std::vector<Packet> query(const std::string &network,
+                              const std::string &station,
+                              const std::string &channel,
+                              const std::string &locationCode,
+                              const double startTime,
+                              const double endTime) const
+    {
+        std::vector<Packet> result;
+        // Ensure we're connected
+        auto session
+            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
+        if (!mConnection.isConnected())
+        {
+            spdlog::info("Attempting to reconnect...");
+            mConnection.connect();
+            if (!mConnection.isConnected())
+            {
+                throw std::runtime_error("Could not connect to timescaledb database!");
+            }
+        }
+        auto sensorIdentifier
+            = getSensorIdentifier(network, station, channel, locationCode); // Throws
+        if (sensorIdentifier < 0)
+        {
+            throw std::runtime_error("Could not obtain sensor identifier");
+        }
+spdlog::info("query start");
+        constexpr int batchSize{2048};
+        double samplingRate{0};
+        double time{0};
+        int64_t packetNumber{0};
+        int value32i{0}; soci::indicator indicator32i{soci::indicator::i_null};
+        soci::statement statement = (session->prepare <<
+            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32  FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime) ORDER BY time ASC",
+        soci::use(sensorIdentifier),
+        soci::use(startTime),
+        soci::use(endTime),
+        soci::into(time),
+        soci::into(samplingRate),
+        soci::into(packetNumber),
+        soci::into(value32i, indicator32i));
+        statement.execute();
+int nSamplesRead =0;
+        while (statement.fetch())
+        {
+nSamplesRead = nSamplesRead + 1;
+            //std::cout << std::setprecision(16) << time << " " << value32i << " " << packetNumber << std::endl;
+        }
+spdlog::info("query end; " + std::to_string(nSamplesRead));
+        return result;
+    }
+ 
     void insert(const Packet &packet)
     {
         if (packet.empty())
         {
             spdlog::warn("Packet has no data - returning");
             return;
-        } 
-        // Ensure 
+        }
+        // Ensure we're connected
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         if (!mConnection.isConnected())
@@ -474,8 +544,8 @@ public:
         initializeSensors();
     }
     mutable std::mutex mMutex;
-    Connection::PostgreSQL mConnection;
-    std::map<std::string, int> mSensorIdentifiers;
+    mutable Connection::PostgreSQL mConnection;
+    mutable std::map<std::string, int> mSensorIdentifiers;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
 };
 
@@ -551,3 +621,33 @@ void Client::write(const UWaveServer::Packet &packet)
     pImpl->insert(packet);
 }
 
+std::vector<UWaveServer::Packet> Client::query(
+    const std::string &networkIn,
+    const std::string &stationIn,
+    const std::string &channelIn,
+    const std::string &locationCodeIn,
+    const double startTime,
+    const double endTime) const
+{
+    if (startTime >= endTime)
+    {
+        throw std::invalid_argument("Start time must be less han end time");
+    }
+    auto network = ::convertString(networkIn);
+    if (network.empty())
+    {
+        throw std::invalid_argument("Network is empty");
+    }
+    auto station = ::convertString(stationIn);
+    if (station.empty())
+    {
+        throw std::invalid_argument("Station is empty");
+    } 
+    auto channel = ::convertString(channelIn);
+    if (channel.empty())
+    {
+        throw std::invalid_argument("Channel is empty");
+    }
+    auto locationCode = ::convertString(locationCodeIn);
+    return pImpl->query(network, station, channel, locationCode, startTime, endTime); 
+}

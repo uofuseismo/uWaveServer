@@ -2,6 +2,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <csignal>
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -20,6 +21,11 @@
 #include "private/threadSafeBoundedQueue.hpp"
 
 [[nodiscard]] std::string parseCommandLineOptions(int argc, char *argv[]);
+
+namespace
+{       
+std::atomic_bool mInterrupted{false};
+}
 
 std::string toName(const UWaveServer::Packet &packet)
 {
@@ -258,7 +264,9 @@ public:
                    + " entering database writer");
         const std::chrono::milliseconds mTimeOut{10};
 int printEvery{0};
+        int nRowsWritten{0};
         double averageTime{0};
+        double cumulativeTime{0};
         while (keepRunning())
         {
             UWaveServer::Packet packet;
@@ -276,15 +284,21 @@ int printEvery{0};
                         = std::chrono::duration_cast<std::chrono::microseconds>
                           (t2 - t1).count()*1.e-6;
                     averageTime = averageTime + duration;
+                    cumulativeTime = cumulativeTime + duration;
+                    nRowsWritten = nRowsWritten + packet.size();
                     printEvery = printEvery + 1;
                     if (printEvery > 100)
                     {
                         spdlog::info("Average packet write time on thread " + std::to_string(iThread) //+ ::toName(packet)
                                    + " took: "
                                    + std::to_string (averageTime/printEvery)
-                                   + " seconds");
+                                   + " seconds.  ("
+                                   + std::to_string(nRowsWritten/cumulativeTime)
+                                   + " rows/second)" );
                         printEvery = 0;
                         averageTime = 0;
+                        nRowsWritten = 0;
+                        cumulativeTime = 0;
                     }
                 }
                 catch (const std::exception &e)
@@ -338,6 +352,46 @@ int printEvery{0};
             }
         }
     }
+    /// Handles sigterm and sigint
+    static void signalHandler(const int )
+    {   
+        mInterrupted = true;
+    }
+    static void catchSignals()
+    {
+        struct sigaction action;
+        action.sa_handler = signalHandler;
+        action.sa_flags = 0;
+        sigemptyset(&action.sa_mask);
+        sigaction(SIGINT,  &action, NULL);
+        // Kubernetes wants this.  Don't mess with SIGKILL b/c since that is
+        // Kubernetes's hammmer.  You basically have 30 seconds to shut
+        // down after SIGTERM or the hammer is coming down!
+        sigaction(SIGTERM, &action, NULL);
+    }
+    /// Place for the main thread to sleep until someone wakes it up.
+    void handleMainThread()
+    {
+        spdlog::debug("Main thread entering waiting loop");
+        catchSignals();
+        {
+            while (!mStopRequested)
+            {
+                if (mInterrupted)
+                {
+                    spdlog::info("SIGINT/SIGTERM signal received!");
+                    mStopRequested = true;
+                    break;
+                }
+            }
+        }
+        if (mStopRequested)
+        {
+            spdlog::debug("Stop request received.  Terminating...");
+            stop();
+        }
+    }
+
     /// @result True indicates the processes should continue to run.
     [[nodiscard]] bool keepRunning() const noexcept
     {
@@ -432,11 +486,14 @@ int printEvery{0};
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    mutable std::mutex mStopContext;
+    std::condition_variable mStopCondition;
     std::vector<std::thread> mDatabaseWriterThreads;
     std::vector<std::pair<int, double>> mWriterThroughPut;
     std::thread mShallowPacketSanitizerThread;
     std::chrono::seconds mMaximumLatency{-1};
     std::atomic<bool> mRunning{true};
+    bool mStopRequested{false};
     int nDatabaseWriterThreads{4};
     bool mInitialized{false};
 };
@@ -479,9 +536,16 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    process->start();
-    std::this_thread::sleep_for(std::chrono::seconds {240}); 
-    process->stop();
+    try
+    {
+        process->start();
+        process->handleMainThread();
+        //process->stop();
+    }
+    catch (const std::exception &e)
+    {
+       spdlog::critical("An error occurred during processing");
+    }
 
     // Initialize the utility that will map from the acquisition to the database 
 

@@ -6,6 +6,7 @@
 #ifndef NDEBUG
 #include <cassert>
 #endif
+#include <libmseed.h>
 #include "uWaveServer/packet.hpp"
 
 using namespace UWaveServer;
@@ -22,6 +23,140 @@ std::string convertString(const std::string &s)
     temp.erase(std::remove(temp.begin(), temp.end(), ' '), temp.end());
     std::transform(temp.begin(), temp.end(), temp.begin(), ::toupper);
     return temp;
+}
+
+static void msRecordHandler(char *record, int recordLength, void *outputBuffer)
+{
+    auto buffer = reinterpret_cast<std::string *> (outputBuffer);
+    buffer->append(record, recordLength);
+}
+
+[[nodiscard]] int encodingInteger(const Packet::DataType dataType)
+{
+    if (dataType == Packet::DataType::Integer32)
+    {
+        return 0;
+    }
+    else if (dataType == Packet::DataType::Float)
+    {
+        return 1;
+    }
+    else if (dataType == Packet::DataType::Integer64)
+    {
+        return 2;
+    }
+    else if (dataType == Packet::DataType::Double)
+    {
+        return 3;
+    }
+    throw std::invalid_argument("Unhandled data type");    
+}
+
+
+std::string toMiniSEED(const std::vector<Packet> &packets,
+                       const int maxRecordLength = 512, //-1 results in default which is 4096
+                       const bool useMiniSEED3 = true)
+{
+    std::string outputBuffer;
+    if (packets.empty()){return outputBuffer;}
+    auto maxEncodingInteger = ::encodingInteger(packets.at(0).getDataType());
+    bool variableData{false};
+    for (int i = 1; i < static_cast<int> (packets.size()); ++i)
+    {
+        auto encodingInteger = ::encodingInteger(packets.at(i).getDataType());
+        if (encodingInteger != maxEncodingInteger)
+        {
+            variableData = true;
+        }
+        encodingInteger = std::max(encodingInteger, maxEncodingInteger);
+    }
+ 
+    MS3TraceList *msTraceList{nullptr};
+    msTraceList = mstl3_init(msTraceList); 
+    for (const auto &packet : packets)
+    { 
+        MS3Record *msRecord{NULL};
+        msRecord = msr3_init(msRecord);
+        if (msRecord)
+        {
+            std::vector<double> i64Data;
+            msRecord->reclen = maxRecordLength;
+            msRecord->pubversion = 1;
+            // Microseconds to nanoseconds
+            msRecord->starttime
+                = static_cast<int64_t> (packet.getStartTime().count()*1.e3);
+            auto endTime = static_cast<int64_t> (packet.getEndTime().count()*1.e-3);
+            msRecord->samprate = packet.getSamplingRate();
+            msRecord->numsamples = packet.size();
+            if (packet.getDataType() == Packet::DataType::Integer32)
+            {
+                msRecord->encoding = DE_INT32;
+                msRecord->sampletype = 'i';
+                msRecord->datasamples = const_cast<void *> (packet.data());
+            }
+            else if (packet.getDataType() == Packet::DataType::Float)
+            {
+                msRecord->encoding = DE_FLOAT32;
+                msRecord->sampletype = 'f';
+                msRecord->datasamples = const_cast<void *> (packet.data());
+            }
+            else if (packet.getDataType() == Packet::DataType::Double)
+            {
+                msRecord->encoding = DE_FLOAT64;
+                msRecord->sampletype = 'd';
+                msRecord->datasamples = const_cast<void *> (packet.data());
+            }
+            else if (packet.getDataType() == Packet::DataType::Integer64)
+            {
+                i64Data.resize(packet.size());
+                auto dataPtr = static_cast<const int64_t *> (packet.data());
+                std::copy(dataPtr, dataPtr + + packet.size(), i64Data.data());
+                msRecord->datasamples = i64Data.data(); 
+            }
+            else
+            {
+                throw std::runtime_error("Unhandled data type");
+            } 
+            uint32_t flags{0};
+            constexpr int8_t verbose{0};
+            flags |= MSF_FLUSHDATA;
+            if (!useMiniSEED3){flags |= MSF_PACKVER2;}
+            // Don't modify trace list while packing
+            // flags |= MSF_MAINTAINMSTL;
+            // Pack all the data
+            flags |= MSF_FLUSHDATA;
+//          auto nRecordsPacked =  mstl3_pack(msTraceList, &msRecordHandler, &outputBuffer, maxRecordLength, encoding, nullptr, flags, verbose, nullptr); 
+            constexpr uint32_t unusedFlags{0};
+            if (mstl3_addmsr(msTraceList,
+                             msRecord, 
+                             0, 1, unusedFlags, 
+                             nullptr)  // NULL is default toelrance
+               )
+            {
+                msr3_free(&msRecord);
+                mstl3_free(&msTraceList, 1); //("Failed to append to ms trace list");
+            }
+            auto nRecordsPacked = msr3_pack(msRecord, 
+                                            &msRecordHandler,
+                                            &outputBuffer,
+                                            nullptr, 
+                                            flags,
+                                            verbose);
+            msRecord->datasamples = nullptr;
+            if (nRecordsPacked < 1)
+            {
+                msr3_free(&msRecord);
+                throw std::runtime_error("Failed to pack data");
+            }
+        }
+        else
+        {
+            throw std::runtime_error("Failed to initialize MS3Record");
+        }
+        msr3_free(&msRecord);
+    }
+    mstl3_free(&msTraceList, 1);
+    return outputBuffer; 
 }
 
 }

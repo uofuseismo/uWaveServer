@@ -1,6 +1,8 @@
 #ifndef UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
 #define UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
 #include <memory>
+#include <vector>
+#include <string>
 namespace UWaveServer
 {
  class Packet;
@@ -26,7 +28,13 @@ public:
     /// @throws std::runtime_error if there is another error while writing
     ///         the data.
     void write(const UWaveServer::Packet &packet);
-
+    [[nodiscard]] std::vector<UWaveServer::Packet>
+         query(const std::string &network,
+               const std::string &staiton,
+               const std::string &channel,
+               const std::string &locationCode,
+               const double startTime,
+               const double endTime) const;
     
     /// @brief (Re)Establishes a connection.
     void connect();

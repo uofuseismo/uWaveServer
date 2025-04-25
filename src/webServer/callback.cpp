@@ -1,10 +1,68 @@
 #include <iostream>
+#include <ctime>
+#include <chrono>
 #include <boost/url.hpp>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/database/client.hpp"
 #include "callback.hpp"
 
 using namespace UWaveServer::WebServer;
+
+namespace
+{
+/// Converts YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM:SS.XXXXXX
+/// to seconds since the epoch.
+double toTimeStamp(const std::string &timeStringIn)
+{
+    auto timeString = timeStringIn;
+    if (timeString.back() == 'Z'){timeString.pop_back();}
+    // In case we have something like 2025-04-22T12:13:22.32
+/*
+    if (timeString.size() > 19)
+    {
+        while (timeString.size() < 26)
+        {
+            timeString.push_back('0');
+        }
+    }
+*/
+    int year{1900};
+    unsigned int month{1};
+    unsigned int dom{1};
+    int hour{0};
+    int minute{0};
+    int second{0};
+    int microSecond{0};
+    if (timeString.size() == 26)
+    {
+        sscanf(timeString.c_str(),
+               "%04d-%02d-%02dT%02d:%02d:%02d.%06d",
+               &year, &month, &dom, &hour, &minute, &second, &microSecond);
+    }
+    else if (timeString.size() == 19)
+    {
+        sscanf(timeString.c_str(),
+               "%04d-%02d-%02dT%02d:%02d:%02d",
+               &year, &month, &dom, &hour, &minute, &second);
+    }
+    else
+    {
+        throw std::invalid_argument(timeString + " is an invalid time string");
+    } 
+    auto yearMonthDay = std::chrono::year_month_day(std::chrono::year {year},
+                                                    std::chrono::month {month},
+                                                    std::chrono::day {dom} );
+    std::chrono::sys_days elapsedDays{yearMonthDay};
+    auto hourMinuteSecond
+        = std::chrono::hh_mm_ss<std::chrono::seconds> {
+             std::chrono::hours {hour}
+           + std::chrono::minutes (minute)
+           + std::chrono::seconds (second) };
+    auto timeStamp = elapsedDays.time_since_epoch() + hourMinuteSecond.to_duration();
+    auto time = timeStamp.count() + microSecond*1.e-6;
+    return time;
+}
+}
 
 class Callback::CallbackImpl
 {
