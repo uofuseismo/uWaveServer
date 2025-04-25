@@ -38,20 +38,25 @@ std::string toName(const UWaveServer::Packet &packet)
 }
 
 template<typename T>
-void fill(const int nSamples,
+void fill(const int nFill,
+          const int offset,
           const double startTime,
-          const double samplingRate,
+          const double samplingPeriod,
           const T *valuesIn,
           std::vector<double> &times,
           std::vector<T> &values)
 {
-    values.resize(nSamples);
-    std::copy(valuesIn, valuesIn + nSamples, values.begin()); 
-    auto samplingPeriod = 1./samplingRate;
-    times.resize(nSamples);
-    for (int i = 0; i < nSamples; ++i)
+#ifndef NDEBUG
+    assert(nFill == static_cast<int> (values.size()));
+    assert(nFill == static_cast<int> (times.size()));
+#endif
+    std::copy(valuesIn + offset,
+              valuesIn + offset + nFill,
+              values.begin()); 
+    for (int i = 0; i < nFill; ++i)
     {
-        times[i] = startTime + static_cast<double> (i)*samplingPeriod;
+        times[i] = startTime
+                 + static_cast<double> (offset + i)*samplingPeriod;
     }
 }
 
@@ -186,7 +191,9 @@ public:
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
         }
-        int batchSize = 512;
+        // TODO this needs tuning.  It appears multiple batches results
+        // in some performance degradation so for now let's keep this big.
+        constexpr int batchSize = 2048;
 #ifndef NDEBUG
         assert(batchSize > 0);
 #endif
@@ -204,26 +211,17 @@ public:
         int nBatches = nSamples/batchSize + 1;
         if (dataType == UWaveServer::Packet::DataType::Integer32)
         {
-            spdlog::info("Writing "
-                        + std::to_string(nSamples)
-                        + " samples for packet " + ::toName(packet));
+            //spdlog::info("Writing "
+            //            + std::to_string(nSamples)
+            //            + " samples for packet " + ::toName(packet));
             // N.B. we want to do a bulk insert.  The ON CONFLICT DO NOTHING
             // means that the old data perserveres in case the
             // (identifier, time) already exists.  This is an optimization
             // that also prevents the entire batch from failing in the case
             // of one bad sample.
-            auto values = static_cast<const int *> (packet.data());
+            auto valuesPtr = static_cast<const int *> (packet.data());
             {
             soci::transaction tr(*session);
-            double timeToWrite{startTime};
-            int valueToWrite{0};
-            soci::statement statement = (session->prepare <<
-                "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifier),
-                soci::use(timeToWrite),
-                soci::use(samplingRate),
-                soci::use(packetNumber),
-                soci::use(valueToWrite)); 
             for (int batch = 0; batch < nBatches; ++batch)
             {
                 int i1 = batch*batchSize;
@@ -231,17 +229,33 @@ public:
 #ifndef NDEBUG
                 assert(i2 <= nSamples);
 #endif
-                for (int i = i1; i < i2; ++i)
-                {
-                    timeToWrite = startTime + i*samplingPeriod;
-                    valueToWrite = values[i];
-std::cout << std::setprecision(16) << i << " " << timeToWrite << " " << valueToWrite << std::endl;
-                }
+                auto nFill = i2 - i1; 
+                if (nFill < 1){break;}
+
+                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
+                std::vector<double> samplingRates(nFill, samplingRate);
+                std::vector<int64_t> packetNumbers(nFill, packetNumber);
+                std::vector<double> times(nFill);
+                std::vector<int> values(nFill);
+                ::fill(nFill,
+                       i1,
+                       startTime,
+                       samplingPeriod,
+                       valuesPtr,
+                       times, values);
+                // Create the insert statement
+                soci::statement statement = (session->prepare <<
+                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                soci::use(sensorIdentifiers),
+                soci::use(times),
+                soci::use(samplingRates),
+                soci::use(packetNumbers),
+                soci::use(values)); 
                 statement.execute(true);
             }
             tr.commit();
             } 
-            spdlog::info("Finished writing integer packet");
+            //spdlog::info("Finished writing integer packet");
         }
         else if (dataType == UWaveServer::Packet::DataType::Float)
         {
