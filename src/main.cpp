@@ -287,13 +287,13 @@ int printEvery{0};
                     cumulativeTime = cumulativeTime + duration;
                     nRowsWritten = nRowsWritten + packet.size();
                     printEvery = printEvery + 1;
-                    if (printEvery > 100)
+                    if (printEvery > 1000)
                     {
                         spdlog::info("Average packet write time on thread " + std::to_string(iThread) //+ ::toName(packet)
                                    + " took: "
                                    + std::to_string (averageTime/printEvery)
                                    + " seconds.  ("
-                                   + std::to_string(nRowsWritten/cumulativeTime)
+                                   + std::to_string(std::round(nRowsWritten/cumulativeTime))
                                    + " rows/second)" );
                         printEvery = 0;
                         averageTime = 0;
@@ -694,9 +694,15 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     }
 
     UWaveServer::PacketSanitizerOptions packetSanitizerOptions; 
-    packetSanitizerOptions.setMaximumLatency(std::chrono::seconds {30});
+    // Realistically, anything older than 2 -4 weeks isn't making it back
+    // from the field.  2 months is pretty generous so we let the database
+    // deal with it.
+    packetSanitizerOptions.setMaximumLatency(std::chrono::seconds {60*86400});
+    // We're really only interested in deduplicating from multiple data
+    // feeds so this should be big enough to accomodate their latencies.
+    packetSanitizerOptions.setCircularBufferDuration(std::chrono::seconds {60});
     packetSanitizerOptions.setMaximumFutureTime(std::chrono::seconds {0});
-    packetSanitizerOptions.setBadDataLoggingInterval(std::chrono::seconds {-1});
+    packetSanitizerOptions.setBadDataLoggingInterval(std::chrono::seconds {60*10}); //-1});
     auto maximumLatency = static_cast<int> (packetSanitizerOptions.getMaximumLatency().count()); 
     auto maximumFutureTime = static_cast<int> (packetSanitizerOptions.getMaximumFutureTime().count());
     maximumLatency = propertyTree.get<int> ("PacketSanitizer.maximumLatency", maximumLatency);

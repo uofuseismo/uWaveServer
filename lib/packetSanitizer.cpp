@@ -4,6 +4,9 @@
 #include <map>
 #include <set>
 #include <string>
+#ifndef NDEBUG
+#include <cassert>
+#endif
 #include <boost/circular_buffer.hpp>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/packetSanitizer.hpp"
@@ -192,7 +195,7 @@ public:
         logBadData(nowMuSeconds);
         auto earliestTime = nowMuSeconds - mMaxLatency;
         // Too old?
-        if (header.endTime < earliestTime)
+        if (mMaxLatency.count() > 0 && header.endTime < earliestTime)
         {
             if (mLogBadData)
             {
@@ -279,9 +282,32 @@ public:
         // Insert it (typically new stuff shows up)
         if (header > circularBufferIndex->second.back())
         {
-            spdlog::debug("Inserting " + header.name
-                        + " at end of circular buffer");
+            //spdlog::debug("Inserting " + header.name
+            //            + " at end of circular buffer");
             circularBufferIndex->second.push_back(header);
+            return true;
+        }
+        // Is it really old - push to front?
+        if (header < circularBufferIndex->second.front())
+        {
+            // There's a bit of a trap here.  Basically data can be older
+            // than this circular buffer will allow for but not so old
+            // to trigger an expired packet error (above).  In this case,
+            // we allow the packet and let the database deal with it.
+            if (!circularBufferIndex->second.full())
+            {
+                spdlog::debug("Inserting " + header.name 
+                            + " at front of circular buffer");
+                circularBufferIndex->second.push_front(header);
+#ifndef NDEBUG
+                assert(std::is_sorted(circularBufferIndex->second.begin(),
+                                      circularBufferIndex->second.end(),
+                       [](const ::DataPacketHeader &lhs, const ::DataPacketHeader &rhs)
+                       {
+                          return lhs.startTime < rhs.startTime;
+                       }));
+#endif
+            }
             return true;
         }
         // The packet is old.  We have to check for a GPS slip.
@@ -352,9 +378,9 @@ PacketSanitizer::PacketSanitizer(const PacketSanitizerOptions &options) :
     {   
         pImpl->mLogBadDataInterval = options.getBadDataLoggingInterval();
     }   
-    pImpl->mCircularBufferDuration
-        = std::chrono::duration_cast<std::chrono::seconds>
-          (3*pImpl->mMaxLatency);
+    // Technically, this should be max(maxLatency, circularBuferDuration)
+    // but we'll let the database sort out older backfills.
+    pImpl->mCircularBufferDuration = options.getCircularBufferDuration();
     pImpl->mOptions = options;
 }
 

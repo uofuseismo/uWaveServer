@@ -1,8 +1,13 @@
 #include <iostream>
 #include <iomanip>
+#include <limits>
+#include <algorithm>
 #include <mutex>
 #include <string>
 #include <vector>
+#ifndef NDEBUG
+#include <cassert>
+#endif
 #include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
 #include <soci/soci.h>
@@ -14,6 +19,224 @@ using namespace UWaveServer::Database;
 
 namespace
 {
+
+struct QueryRow
+{   
+    QueryRow() = default;
+    QueryRow(const double samplingRateIn,
+             const double timeIn,
+             const int64_t packetNumberIn,
+             const int valueIn) :
+        samplingRate(samplingRateIn),
+        time(timeIn),
+        packetNumber(packetNumberIn),
+        value64f(0),
+        value64i(0),
+        value32i(valueIn),
+        value32f(0),
+        haveValue64f(false),
+        haveValue64i(false),
+        haveValue32i(true),
+        haveValue32f(false)
+    {
+    }
+    QueryRow(const double samplingRateIn,
+             const double timeIn,
+             const int64_t packetNumberIn,
+             const double valueIn) :
+        samplingRate(samplingRateIn),
+        time(timeIn),
+        packetNumber(packetNumberIn),
+        value64f(valueIn),
+        value64i(0),
+        value32i(0),
+        value32f(0),
+        haveValue64f(true),
+        haveValue64i(false),
+        haveValue32i(false),
+        haveValue32f(false)
+    {
+    }
+    QueryRow(const double samplingRateIn,
+             const double timeIn,
+             const int64_t packetNumberIn,
+             const int64_t valueIn) :
+        samplingRate(samplingRateIn),
+        time(timeIn),
+        packetNumber(packetNumberIn),
+        value64f(0),
+        value64i(valueIn),
+        value32i(0),
+        value32f(0),
+        haveValue64f(false),
+        haveValue64i(true),
+        haveValue32i(false),
+        haveValue32f(false)
+    {
+    }
+    QueryRow(const double samplingRateIn,
+             const double timeIn,
+             const float packetNumberIn,
+             const int valueIn) :
+        samplingRate(samplingRateIn),
+        time(timeIn),
+        packetNumber(packetNumberIn),
+        value64f(0),
+        value64i(0),
+        value32i(0),
+        value32f(valueIn),
+        haveValue64f(false),
+        haveValue64i(false),
+        haveValue32i(false),
+        haveValue32f(true)
+    {
+    }
+    double samplingRate{0};
+    double time{0};
+    int64_t packetNumber{-1};
+    double value64f{0};
+    int64_t value64i{0};
+    int value32i{0};
+    float value32f{0};
+    bool haveValue64f{false};
+    bool haveValue64i{false};
+    bool haveValue32i{false};
+    bool haveValue32f{false};
+};
+
+UWaveServer::Packet queryRowsToPacket(
+    const std::string &network,
+    const std::string &station,
+    const std::string &channel,
+    const std::string &locationCode,
+    const std::vector<::QueryRow> &rows,
+    const int64_t packetNumber)
+{
+    // Make a list of the indices where this matches
+    std::vector<int> indices;
+    indices.reserve(rows.size());
+    for (int i = 0; i < static_cast<int> (rows.size()); ++i)
+    {
+        if (rows[i].packetNumber == packetNumber)
+        {
+            indices.push_back(i);
+        } 
+    }
+    if (indices.empty())
+    {
+        throw std::invalid_argument(
+            "Could not find rows matching packet number "
+           + std::to_string(packetNumber));
+    }
+    // Figure out the data type.  Note, we inserted a packet into the database
+    // and tagged that packet with a unique identifyer.  Since the packet has
+    // a fixed data type determining the first data type is sufficient to know
+    // all the data types of subsequent samples.
+    auto &firstRow = rows.at(indices.at(0));
+    UWaveServer::Packet packet;
+    packet.setNetwork(network);
+    packet.setStation(station);
+    packet.setChannel(channel);
+    packet.setLocationCode(locationCode);
+    packet.setSamplingRate(firstRow.samplingRate);
+    packet.setStartTime(firstRow.time);
+    if (firstRow.haveValue32i)
+    {
+        std::vector<int> values;
+        values.reserve(indices.size());
+        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        {
+            values.push_back(rows[i].value32i);
+        }
+        packet.setData(std::move(values));
+    }
+    else if (firstRow.haveValue64f)
+    {
+        std::vector<double> values;
+        values.reserve(indices.size());
+        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        {
+            values.push_back(rows[i].value64f);
+        }
+        packet.setData(std::move(values));
+    }
+    else if (firstRow.haveValue64i)
+    {
+        std::vector<int64_t> values;
+        values.reserve(indices.size());
+        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        {
+            values.push_back(rows[i].value64i);
+        }
+        packet.setData(std::move(values));
+    }
+    else if (firstRow.haveValue32f)
+    {
+        std::vector<float> values;
+        values.reserve(indices.size());
+        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        {
+            values.push_back(rows[i].value32f);
+        }
+        packet.setData(std::move(values));
+    }
+    else
+    {
+        throw std::runtime_error("Unhandled data type in packing reconstruction");
+    }
+    return packet;
+}
+
+std::vector<int64_t> uniquePacketNumbers(
+    const std::vector<::QueryRow> &rows)
+{
+    std::vector<int64_t> packetNumbers;
+    if (rows.empty()){return packetNumbers;}
+    if (rows.size() == 1)
+    {
+        packetNumbers.push_back(rows.at(0).packetNumber); 
+        return packetNumbers;
+    }
+    packetNumbers.resize(rows.size());
+    for (int i = 0; i < static_cast<int> (rows.size()); ++i)
+    {
+        packetNumbers[i] = rows[i].packetNumber;
+    }
+    std::sort(packetNumbers.begin(), packetNumbers.end());
+    auto last = std::unique(packetNumbers.begin(), packetNumbers.end());
+    packetNumbers.erase(last, packetNumbers.end());
+    return packetNumbers;
+}
+
+std::vector<UWaveServer::Packet> 
+    queryRowsToPackets(const std::string &network,
+                       const std::string &station,
+                       const std::string &channel,
+                       const std::string &locationCode,
+                       const std::vector<::QueryRow> &rows)
+{
+    std::vector<UWaveServer::Packet> result;
+    if (rows.empty()){return result;}
+    auto packetNumbers = ::uniquePacketNumbers(rows);
+    for (const auto &packetNumber : packetNumbers)
+    {
+        try
+        {
+            auto packet
+                = ::queryRowsToPacket(network, station, channel, locationCode, rows, packetNumber);
+            result.push_back(std::move(packet));
+        }
+        catch (...)
+        {
+        }
+    }
+    std::sort(result.begin(), result.end(),
+              [](const auto &lhs, const auto &rhs)
+              {
+                  return lhs.getStartTime() < rhs.getStartTime();
+              });
+    return result;
+}
 
 /// @brief Converts an input string to an upper-case string with no blanks.
 /// @param[in] s  The string to convert.
@@ -206,46 +429,139 @@ public:
     {
         std::vector<Packet> result;
         // Ensure we're connected
-        auto session
-            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         if (!mConnection.isConnected())
         {
-            spdlog::info("Attempting to reconnect...");
-            mConnection.connect();
+            spdlog::info("In query; attempting to reconnect...");
+            mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
         }
+        auto session
+            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         auto sensorIdentifier
             = getSensorIdentifier(network, station, channel, locationCode); // Throws
         if (sensorIdentifier < 0)
         {
             throw std::runtime_error("Could not obtain sensor identifier");
         }
-spdlog::info("query start");
+#ifndef NDEBUG
+        auto queryTimeStart = std::chrono::high_resolution_clock::now(); 
+#endif
+        std::vector<QueryRow> queryRows;
+        queryRows.reserve(8192);
         constexpr int batchSize{2048};
         double samplingRate{0};
         double time{0};
         int64_t packetNumber{0};
-        int value32i{0}; soci::indicator indicator32i{soci::indicator::i_null};
+        std::optional<int> value32i;
+        std::optional<double> value32f;
+        std::optional<double> value64f;
+        std::optional<int64_t> value64i;
+        int8_t firstDataType{-1};
+        bool mixedPrecision{false};
         soci::statement statement = (session->prepare <<
-            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32  FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime) ORDER BY time ASC",
+            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime) ORDER BY time ASC",
         soci::use(sensorIdentifier),
         soci::use(startTime),
         soci::use(endTime),
         soci::into(time),
         soci::into(samplingRate),
         soci::into(packetNumber),
-        soci::into(value32i, indicator32i));
+        soci::into(value32i), //, indicator32i),
+        soci::into(value32f), //, indicator32f),
+        soci::into(value64f), //, indicator64f),
+        soci::into(value64i)); //, indicator64i));
         statement.execute();
-int nSamplesRead =0;
+        int nSamplesRead = 0;
         while (statement.fetch())
         {
-nSamplesRead = nSamplesRead + 1;
+            nSamplesRead = nSamplesRead + 1;
             //std::cout << std::setprecision(16) << time << " " << value32i << " " << packetNumber << std::endl;
+            if (value32i) //indicator32i == soci::indicator::i_ok)
+            {
+                if (queryRows.empty()){firstDataType = 1;}
+                if (firstDataType != 1){mixedPrecision = true;}
+                QueryRow row
+                {
+                    samplingRate,
+                    time,
+                    packetNumber, *value32i
+                };
+                queryRows.push_back(std::move(row));
+            }
+            else if (value32f) //indicator32f == soci::indicator::i_ok)
+            {
+                if (queryRows.empty()){firstDataType = 2;}
+                if (firstDataType != 2){mixedPrecision = true;}
+                auto value = static_cast<float> (*value32f);
+                QueryRow row
+                {
+                    samplingRate,
+                    time,
+                    packetNumber, value
+                };
+                queryRows.push_back(std::move(row));
+            }
+            else if (value64f) //indicator64f == soci::indicator::i_ok)
+            {
+                if (queryRows.empty()){firstDataType = 3;}
+                if (firstDataType != 3){mixedPrecision = true;}
+                QueryRow row
+                {
+                    samplingRate,
+                    time,
+                    packetNumber, *value64f
+                };
+                queryRows.push_back(std::move(row));
+            }
+            else if (value64i) //indicator64i == soci::indicator::i_ok)
+            {
+                if (queryRows.empty()){firstDataType = 4;}
+                if (firstDataType != 4){mixedPrecision = true;}
+                QueryRow row
+                {
+                    samplingRate,
+                    time,
+                    packetNumber, *value64i
+                };
+                queryRows.push_back(std::move(row));
+            }
+            else
+            {
+                spdlog::warn("Unhandled data type");
+            }
         }
-spdlog::info("query end; " + std::to_string(nSamplesRead));
+        if (mixedPrecision)
+        {
+            throw std::runtime_error("Cannot handle mixed precision");
+        }
+        if (nSamplesRead != static_cast<int> (queryRows.size()))
+        {
+            spdlog::warn("Only unpacked " + std::to_string(queryRows.size()) 
+                       + " rows out of " + std::to_string(nSamplesRead));
+        }
+#ifndef NDEBUG
+        auto queryTimeEnd = std::chrono::high_resolution_clock::now();
+        double queryDuration
+             = std::chrono::duration_cast<std::chrono::microseconds>
+               (queryTimeEnd - queryTimeStart).count()*1.e-6;
+        spdlog::debug("Query time to recover "
+                    + std::to_string(nSamplesRead)
+                    + " samples was " + std::to_string(queryDuration) + " (s)");
+        auto unpackTimeStart = std::chrono::high_resolution_clock::now();
+#endif
+        result = ::queryRowsToPackets(network, station, channel,
+                                      locationCode, queryRows);
+#ifndef NDEBUG
+        auto unpackTimeEnd = std::chrono::high_resolution_clock::now();
+        double unpackDuration
+             = std::chrono::duration_cast<std::chrono::microseconds>
+               (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
+        spdlog::debug("Unpack time was  "
+                    + std::to_string(unpackDuration) + " (s)");
+#endif
         return result;
     }
  
@@ -257,17 +573,17 @@ spdlog::info("query end; " + std::to_string(nSamplesRead));
             return;
         }
         // Ensure we're connected
-        auto session
-            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         if (!mConnection.isConnected())
         {
-            spdlog::info("Attempting to reconnect...");
-            mConnection.connect();
+            spdlog::info("In insert; attempting to reconnect...");
+            mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
         }
+        auto session
+            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         // TODO this needs tuning.  It appears multiple batches results
         // in some performance degradation so for now let's keep this big.
         constexpr int batchSize = 2048;
@@ -440,7 +756,7 @@ spdlog::info("query end; " + std::to_string(nSamplesRead));
                        times, values);
                 // Create the insert statement
                 soci::statement statement = (session->prepare <<
-                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
+                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
                 soci::use(sensorIdentifiers),
                 soci::use(times),
                 soci::use(samplingRates),

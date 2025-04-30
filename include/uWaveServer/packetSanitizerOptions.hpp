@@ -31,10 +31,14 @@ public:
     PacketSanitizerOptions(PacketSanitizerOptions &&options) noexcept;
     /// @}
 
+    /// @brief Sets the approximate duration of the circular buffer.
+    void setCircularBufferDuration(const std::chrono::seconds &duration);
+    /// @result The approximate duration of the circular buffer.
+    [[nodiscard]] std::chrono::seconds getCircularBufferDuration() const noexcept;
+
     /// @brief If the data packet's last sample is older than the current time 
     ///        minus the maximum latency then it will be rejected.
     /// @param[in] latency   The maximum latency.
-    /// @throws std::invalid_argument if the latency is not positive.
     void setMaximumLatency(const std::chrono::seconds &latency);
     /// @result The maximum data latency.  By default this is 500 seconds (~8 minutes).
     [[nodiscard]] std::chrono::seconds getMaximumLatency() const noexcept;

@@ -530,6 +530,13 @@ void Packet::setData(const int nSamples, const U *data)
     pImpl->setData(std::move(dataVector));
 }
 
+template<typename U>
+void Packet::setData(std::vector<U> &&data)
+{
+    if (data.empty()){throw std::invalid_argument("No data samples");}
+    pImpl->setData(std::move(data));
+}
+
 /// Destructor
 Packet::~Packet() = default;
 
@@ -540,3 +547,7 @@ template void Packet::setData(const int nSamples, const int *data);
 template void Packet::setData(const int nSamples, const float *data);
 template void Packet::setData(const int nSamples, const double *data);
 template void Packet::setData(const int nSamples, const int64_t *data);
+template void Packet::setData(std::vector<int> &&data);
+template void Packet::setData(std::vector<float> &&data);
+template void Packet::setData(std::vector<double> &&data);
+template void Packet::setData(std::vector<int64_t> &&data);

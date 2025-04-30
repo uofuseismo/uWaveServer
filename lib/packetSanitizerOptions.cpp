@@ -10,6 +10,7 @@ public:
     std::chrono::seconds mMaxFutureTime{0};
     std::chrono::seconds mMaxLatency{500};
     std::chrono::seconds mLogBadDataInterval{3600};
+    std::chrono::seconds mCircularBufferDuration{60};
     bool mLogBadData{true};
 };
 
@@ -50,15 +51,38 @@ PacketSanitizerOptions::getMaximumFutureTime() const noexcept
     return pImpl->mMaxFutureTime;
 }
 
+void PacketSanitizerOptions::setCircularBufferDuration(
+    const std::chrono::seconds &duration)
+{
+    if (duration.count() <= 0)
+    {
+        throw std::invalid_argument("Duration must be positive");
+    }
+    pImpl->mCircularBufferDuration = duration;
+}
+
+std::chrono::seconds
+PacketSanitizerOptions::getCircularBufferDuration() const noexcept
+{
+    return pImpl->mCircularBufferDuration;
+}
+
 /// The max past time
 void PacketSanitizerOptions::setMaximumLatency(
     const std::chrono::seconds &maxLatency)
 {
-    if (maxLatency.count() < 0)
+    //if (maxLatency.count() <= 0)
+    //{
+    //    throw std::invalid_argument("Maximum latency time must be positive");
+    //}
+    if (maxLatency.count() > 0)
     {
-        throw std::invalid_argument("Maximum latency time must be positive");
+        pImpl->mMaxLatency = maxLatency;
     }
-    pImpl->mMaxLatency = maxLatency;
+    else
+    {
+        pImpl->mMaxLatency = std::chrono::seconds {-1};
+    }
 }
 
 std::chrono::seconds 

@@ -127,6 +127,8 @@ public:
     [[nodiscard]] std::string getConnectionString() const;
     /// @brief Establishes a connection from the above resources.
     void connect();
+    /// @brief Attempts to reconnect.
+    void reconnect();
     /// @result True indicates the connection was established.
     [[nodiscard]] bool isConnected() const noexcept;
     /// @}

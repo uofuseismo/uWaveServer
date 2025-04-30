@@ -221,6 +221,11 @@ void PostgreSQL::connect()
     }
 }
 
+void PostgreSQL::reconnect()
+{
+    pImpl->mSession.reconnect();
+}
+
 bool PostgreSQL::isConnected() const noexcept
 {
     return pImpl->mSession.is_connected();
