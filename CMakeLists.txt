@@ -17,6 +17,7 @@ endif()
 find_package(spdlog REQUIRED)
 find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
 find_package(PostgreSQL REQUIRED)
+find_package(nlohmann_json 3.8.0 REQUIRED)
 find_package(Boost COMPONENTS program_options date_time url REQUIRED)
 find_package(MiniSEED REQUIRED)
 find_package(SEEDLink REQUIRED)
@@ -61,6 +62,7 @@ set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD_REQUIRED YES
                       CXX_EXTENSIONS NO)
 target_link_libraries(uWaveServer
+                      PUBLIC nlohmann_json::nlohmann_json
                       PRIVATE spdlog::spdlog SOCI::Core SOCI::PostgreSQL 
                               ${MINISEED_LIBRARY})
 target_include_directories(uWaveServer

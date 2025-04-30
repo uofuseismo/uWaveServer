@@ -15,6 +15,8 @@
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 
+#define BATCHED_QUERY 1
+
 using namespace UWaveServer::Database;
 
 namespace
@@ -321,7 +323,8 @@ public:
     [[nodiscard]] int getSensorIdentifier(const std::string &network,
                                           const std::string &station,
                                           const std::string &channel,
-                                          const std::string &locationCode) const
+                                          const std::string &locationCode,
+                                          const bool addIfNotExists) const
     {
         auto name = ::toName(network, station, channel, locationCode);
         // Maybe we already have this channel 
@@ -347,6 +350,11 @@ public:
         // This channel doesn't exist in the database so add it
         if (identifier ==-1)
         {
+            if (!addIfNotExists)
+            {
+                spdlog::debug("Sensor " + name + " does not exist");
+                return identifier;
+            }
             {
             soci::transaction tr(*session);
             *session <<
@@ -369,13 +377,13 @@ public:
         }
         return identifier; 
     }
-    [[nodiscard]] int getSensorIdentifier(const Packet &packet) const
+    [[nodiscard]] int getSensorIdentifier(const Packet &packet, const bool addIfNotExists) const
     {   
         auto network = packet.getNetwork();
         auto station = packet.getStation();
         auto channel = packet.getChannel();
         auto locationCode = packet.getLocationCode();
-        return getSensorIdentifier(network, station, channel, locationCode);
+        return getSensorIdentifier(network, station, channel, locationCode, addIfNotExists);
     }
     void initializeSensors()
     {
@@ -440,18 +448,113 @@ public:
         }
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession()); 
+        constexpr bool addIfNotExists{false};
         auto sensorIdentifier
-            = getSensorIdentifier(network, station, channel, locationCode); // Throws
+            = getSensorIdentifier(network, station, channel,
+                                  locationCode, addIfNotExists); // Throws
         if (sensorIdentifier < 0)
         {
-            throw std::runtime_error("Could not obtain sensor identifier");
+            throw std::invalid_argument("Could not obtain sensor identifier");
         }
 #ifndef NDEBUG
         auto queryTimeStart = std::chrono::high_resolution_clock::now(); 
 #endif
-        std::vector<QueryRow> queryRows;
-        queryRows.reserve(8192);
-        constexpr int batchSize{2048};
+        constexpr int batchSize{8192};
+        std::vector<::QueryRow> queryRows;
+        queryRows.reserve(batchSize);
+#ifdef BATCHED_QUERY
+        std::vector<int64_t> sensorIdentifiers(batchSize);
+        std::vector<double> times(batchSize);
+        std::vector<double> samplingRates(batchSize);
+        std::vector<int64_t> packetNumbers(batchSize);
+        std::vector<std::optional<int>> values32i(batchSize);
+        std::vector<std::optional<double>> values32f(batchSize);
+        std::vector<std::optional<double>> values64f(batchSize);
+        std::vector<std::optional<int64_t>> values64i(batchSize);
+        soci::statement statement = (session->prepare <<
+            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime)", // ORDER BY time ASC",
+        soci::use(sensorIdentifier),
+        soci::use(startTime),
+        soci::use(endTime),
+        soci::into(times),
+        soci::into(samplingRates),
+        soci::into(packetNumbers),
+        soci::into(values32i),
+        soci::into(values32f),
+        soci::into(values64f),
+        soci::into(values64i));
+        statement.execute();
+        int nSamplesRead = 0;
+        int8_t firstDataType{-1};
+        bool mixedPrecision{false};
+        while (statement.fetch())
+        {
+            for (int i = 0; i < static_cast<int> (times.size()); ++i)
+            {
+                nSamplesRead = nSamplesRead + 1;
+                if (values32i[i])
+                {
+                    if (queryRows.empty()){firstDataType = 1;}
+                    if (firstDataType != 1){mixedPrecision = true;}
+                    QueryRow row
+                    {
+                       samplingRates[i],
+                       times[i],
+                       packetNumbers[i], *values32i[i]
+                    };
+                    queryRows.push_back(std::move(row));
+                }
+                else if (values32f[i])
+                {
+                    if (queryRows.empty()){firstDataType = 1;}
+                    if (firstDataType != 1){mixedPrecision = true;}
+                    auto value = static_cast<float> (*values32f[i]);
+                    QueryRow row
+                    {
+                       samplingRates[i],
+                       times[i],
+                       packetNumbers[i], value
+                    };
+                    queryRows.push_back(std::move(row));
+                }
+                else if (values64f[i])
+                {
+                    if (queryRows.empty()){firstDataType = 1;}
+                    if (firstDataType != 1){mixedPrecision = true;}
+                    QueryRow row
+                    {
+                       samplingRates[i],
+                       times[i],
+                       packetNumbers[i], *values64f[i]
+                    };
+                    queryRows.push_back(std::move(row));
+                }
+                else if (values64i[i])
+                {
+                    if (queryRows.empty()){firstDataType = 1;}
+                    if (firstDataType != 1){mixedPrecision = true;}
+                    QueryRow row
+                    {
+                       samplingRates[i],
+                       times[i],
+                       packetNumbers[i], *values64i[i]
+                    };
+                    queryRows.push_back(std::move(row));
+                }
+                else
+                {
+                    spdlog::warn("Unhandled data type from SELECT");
+                }
+            }
+            times.resize(batchSize); 
+            samplingRates.resize(batchSize);
+            packetNumbers.resize(batchSize);
+            values32i.resize(batchSize);
+            values32f.resize(batchSize);
+            values64f.resize(batchSize);
+            values64i.resize(batchSize);
+        }
+#else
         double samplingRate{0};
         double time{0};
         int64_t packetNumber{0};
@@ -462,7 +565,7 @@ public:
         int8_t firstDataType{-1};
         bool mixedPrecision{false};
         soci::statement statement = (session->prepare <<
-            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime) ORDER BY time ASC",
+            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime)", // ORDER BY time ASC",
         soci::use(sensorIdentifier),
         soci::use(startTime),
         soci::use(endTime),
@@ -533,6 +636,7 @@ public:
                 spdlog::warn("Unhandled data type");
             }
         }
+#endif
         if (mixedPrecision)
         {
             throw std::runtime_error("Cannot handle mixed precision");
@@ -542,12 +646,31 @@ public:
             spdlog::warn("Only unpacked " + std::to_string(queryRows.size()) 
                        + " rows out of " + std::to_string(nSamplesRead));
         }
+
+        if (!std::is_sorted(queryRows.begin(), queryRows.end(),
+                            [](const auto &lhs, const auto &rhs)
+                            {
+                                return lhs.time < rhs.time;
+                            }))
+        {
+            spdlog::debug("Sorting");
+            std::sort(queryRows.begin(), queryRows.end(),
+                      [](const auto &lhs, const auto &rhs)
+                      {
+                          return lhs.time < rhs.time; 
+                      });
+        }
 #ifndef NDEBUG
+        assert(std::is_sorted(queryRows.begin(), queryRows.end(),
+                              [](const auto &lhs, const auto &rhs)
+                              {
+                                  return lhs.time < rhs.time;
+                              }));
         auto queryTimeEnd = std::chrono::high_resolution_clock::now();
         double queryDuration
              = std::chrono::duration_cast<std::chrono::microseconds>
                (queryTimeEnd - queryTimeStart).count()*1.e-6;
-        spdlog::debug("Query time to recover "
+        spdlog::info("Query time to recover "
                     + std::to_string(nSamplesRead)
                     + " samples was " + std::to_string(queryDuration) + " (s)");
         auto unpackTimeStart = std::chrono::high_resolution_clock::now();
@@ -559,7 +682,7 @@ public:
         double unpackDuration
              = std::chrono::duration_cast<std::chrono::microseconds>
                (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
-        spdlog::debug("Unpack time was  "
+        spdlog::info("Unpack time was  "
                     + std::to_string(unpackDuration) + " (s)");
 #endif
         return result;
@@ -590,7 +713,8 @@ public:
 #ifndef NDEBUG
         assert(batchSize > 0);
 #endif
-        auto sensorIdentifier = getSensorIdentifier(packet); // Throws
+        constexpr bool addIfNotExists{true};
+        auto sensorIdentifier = getSensorIdentifier(packet, addIfNotExists); // Throws
         if (sensorIdentifier < 0)
         {
             throw std::runtime_error("Could not obtain sensor identifier");

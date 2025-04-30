@@ -2,8 +2,10 @@
 #include <ctime>
 #include <chrono>
 #include <boost/url.hpp>
+#include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/database/client.hpp"
+#include "uWaveServer/packet.hpp"
 #include "callback.hpp"
 
 using namespace UWaveServer::WebServer;
@@ -214,36 +216,115 @@ std::string Callback::operator()(
     const std::string &message,
     const boost::beast::http::verb httpRequestType) const
 {
+/*
 std::cout << "---------------------------" << std::endl;
 std::cout << requestHeader.target() << std::endl;
+std::cout << requestHeader["host"] << std::endl;
 std::cout << message << std::endl;
 std::cout << "---------------------------" << std::endl;
-    // I only know how to handle these types of requests
-    if (httpRequestType != boost::beast::http::verb::get)
+*/
+    // Try to build a URL to parse
+    std::string host;
+    try
     {
-        throw std::runtime_error("Unhandled http request verb");
+        host = std::string {requestHeader["host"]};
     }
-    // Try to parse the URI from the header
+    catch (...)
+    {
+        host = "127.0.0.1";
+    }
+    auto requestString = std::string {requestHeader.target()};
+    if (requestString.empty())
+    {
+        requestString = "/";
+    }
+    if (requestString.at(0) != '/')
+    {
+        requestString = "/" + requestString;
+    }
+    if (host.back() == '/'){host.pop_back();} 
+    if (host.find("http://") != 0 || host.find("https://" != 0))
+    {
+        host = "http://" + host;
+    }
+    auto uri = host + requestString;
+    // Try to lift parameters
+    spdlog::info("Parsing: " + uri);
+    boost::system::result<boost::url_view> parsedURL;
+    try
+    {
+        parsedURL = boost::urls::parse_uri(host + requestString); 
+    }
+    catch (const std::exception &e) 
+    {   
+        spdlog::warn("Invalid URI: " + uri);
+        throw std::runtime_error("Failed to build/parse URI");
+    }   
+    // Now we unpack the parameters
     std::string network;
     std::string station;
     std::string channel;
     std::string locationCode;
-    try
+    double startTime{0};
+    double endTime{0};
+    for (auto param : parsedURL->params())
     {
-for(auto &&it : requestHeader)
-{
-std::cout << "header: " << it.name() << " " << it.value() << std::endl;
-}
-        auto uri = "http://" + std::string{requestHeader["Host"]};
-        auto parsedURI = boost::urls::parse_uri(uri);//requestHeader["Host"]);
-        for (auto param : parsedURI->params())
+        //std::cout << param.key << " " << param.value << std::endl;
+        auto key = std::string {param.key};
+        boost::algorithm::to_lower(param.key);
+        if (key.find("net") == 0 || key.find("network") == 0)
         {
-            std::cout << param.key << " " << param.value << std::endl;
+            network = std::string {param.value};
+            boost::algorithm::to_upper(network);
+        }
+        else if (key.find("sta") == 0 || key.find("station") == 0)
+        {
+            if (key.find("start") == 0 || key.find("starttime") == 0)
+            {
+                startTime = ::toTimeStamp(std::string {param.value});
+            }
+            else
+            {
+                station = std::string {param.value};
+                boost::algorithm::to_upper(station);
+            }
+        }
+        else if (key.find("cha") == 0 || key.find("channel") == 0)
+        {
+            channel = std::string {param.value};
+            boost::algorithm::to_upper(channel);
+        }
+        else if (key.find("loc") == 0 || key.find("location") == 0)
+        {
+            locationCode = std::string {param.value};
+            boost::algorithm::to_upper(locationCode);
+        }
+        else if (key.find("end") == 0 || key.find("endtime") == 0)
+        {
+            endTime = ::toTimeStamp(std::string {param.value});
         }
     }
-    catch (...)
+    if (network.empty()){throw std::invalid_argument("net[work] not specified");}
+    if (station.empty()){throw std::invalid_argument("sta[tion] not specified");} 
+    if (channel.empty()){throw std::invalid_argument("cha[nnel] not specified");}
+    if (startTime >= endTime)
     {
-
+        throw std::invalid_argument("start[time] = "
+                                  + std::to_string(startTime)
+                                  + " must be less than end[time] = "
+                                  + std::to_string(endTime));
+    }
+    spdlog::info("Querying: " + network + "." + station + "." + channel + "." + locationCode + " from time " + std::to_string(startTime) + " to " + std::to_string(endTime));
+    if (pImpl->mPostgresClient)
+    {
+        try
+        {
+            auto data = pImpl->mPostgresClient->query(network, station, channel, locationCode, startTime, endTime);
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::error(e.what());
+        }
     }
     // Maybe it came from curl
     return "{\"win\" : \"yes\"}";

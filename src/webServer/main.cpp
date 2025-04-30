@@ -72,11 +72,13 @@ int main()
         spdlog::error("Failed to initialize client; failed with" + std::string {e.what()});
         return EXIT_FAILURE;
     }
+/*
 try
 {
- const double t1{1745614800 };
- const double t2{1745614800 + 360};
- postgresClient->query("WY", "YMV", "HHZ", "01", t1, t2);
+ const double t1{1746028800}; //1745949629 + 1100 };
+ const double t2{t1 + 360};
+ auto result = postgresClient->query("WY", "YJC", "HHZ", "01", t1, t2);
+ spdlog::info(std::to_string(result.size()));
 }
 catch (const std::exception &e)
 {
@@ -84,7 +86,7 @@ catch (const std::exception &e)
     return EXIT_FAILURE;
 }
 return EXIT_SUCCESS;
-
+*/
     // The IO context is required for all I/O
     boost::asio::io_context ioContext{programOptions.nThreads};
     // The SSL context is required, and holds certificates
