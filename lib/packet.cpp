@@ -541,6 +541,104 @@ void Packet::setData(std::vector<U> &&data)
 /// Destructor
 Packet::~Packet() = default;
 
+/// Trim
+void Packet::trim(const double startTime, const double endTime)
+{
+    auto iStartTimeMuS = static_cast<int64_t> (std::round(startTime*1.e6));
+    auto iEndTimeMuS = static_cast<int64_t> (std::round(endTime*1.e6));
+    trim(std::chrono::microseconds {iStartTimeMuS},
+         std::chrono::microseconds {iEndTimeMuS});
+}
+
+void Packet::trim(const std::chrono::microseconds &startTime,
+                  const std::chrono::microseconds &endTime)
+{
+    if (startTime >= endTime)
+    {
+        throw std::invalid_argument("Start time must be less than end time");
+    }
+    if (!haveSamplingRate()){return;}
+    if (empty()){return;} 
+    // Typically we don't have to do anything
+    if (pImpl->mStartTimeMicroSeconds >= startTime &&
+        pImpl->mEndTimeMicroSeconds <= endTime){return;}
+    // Clear the data: packet ends before desired start
+    if (startTime > pImpl->mEndTimeMicroSeconds)
+    {
+        pImpl->clearData();
+        return; 
+    }
+    // Packet starts before desired end
+    if (endTime < pImpl->mStartTimeMicroSeconds)
+    {
+        pImpl->clearData();
+        return;
+    }
+    // Okay, time to go to work
+    auto nSamples = static_cast<int> (size());
+    auto samplingPeriodMuS = std::round(1.e6/getSamplingRate());
+    int iStart{0};
+    if (pImpl->mStartTimeMicroSeconds < startTime)
+    {
+        auto deltaTime = startTime - pImpl->mStartTimeMicroSeconds;
+        iStart
+            = static_cast<int>(std::floor(deltaTime.count()/samplingPeriodMuS));
+        iStart = std::min(std::max(0, iStart), nSamples - 1);
+    }
+    auto iEnd{nSamples}; 
+    if (pImpl->mEndTimeMicroSeconds > endTime)
+    {
+        auto deltaTime = endTime - pImpl->mStartTimeMicroSeconds;
+        iEnd
+            = static_cast<int> (std::ceil(deltaTime.count()/samplingPeriodMuS))
+            + 1; // Exclusive
+        iEnd = std::max(std::min(nSamples, iEnd), iStart);
+    }
+    if (iStart > 0 || iEnd < nSamples)
+    {
+        if (iStart < iEnd)
+        {
+            if (getDataType() == Packet::DataType::Integer32)
+            {
+                std::vector<int> work(pImpl->mInteger32Data.data() + iStart, 
+                                      pImpl->mInteger32Data.data() + iEnd);
+                setData(std::move(work));
+            }
+            else if (getDataType() == Packet::DataType::Integer64)
+            {
+                std::vector<int64_t> work(pImpl->mInteger64Data.data() + iStart,
+                                          pImpl->mInteger64Data.data() + iEnd);
+                setData(std::move(work));
+            }
+            else if (getDataType() == Packet::DataType::Double)
+            {
+                std::vector<double> work(pImpl->mDoubleData.data() + iStart,
+                                         pImpl->mDoubleData.data() + iEnd);
+                setData(std::move(work));
+            }
+            else if (getDataType() == Packet::DataType::Float)
+            {
+                std::vector<float> work(pImpl->mFloatData.data() + iStart,
+                                        pImpl->mFloatData.data() + iEnd);
+                setData(std::move(work));
+            }
+            else
+            {
+#ifndef NDEBUG
+                assert(false);
+#else
+                throw std::runtime_error("Unhandled precision in trim");
+#endif
+            }
+        }
+        else
+        {
+            pImpl->clearData();
+        }
+        if (iStart > 0){setStartTime(startTime);}
+    }
+}
+
 ///--------------------------------------------------------------------------///
 ///                             Template Instantiation                       ///
 ///--------------------------------------------------------------------------///

@@ -381,7 +381,6 @@ public:
 #ifndef NDEBUG
         assert(mSEEDLinkConnection->noblock == 1);
 #endif
-/*
         constexpr bool closeConnection{false};
         if (sl_set_dialupmode(mSEEDLinkConnection, closeConnection) != 0)
         {
@@ -403,7 +402,6 @@ public:
         {
             spdlog::warn("Failed to set reconnect delay");
         }
-*/
         // Check this worked
 /*
         std::string slSite(512, '\0');

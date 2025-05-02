@@ -10,12 +10,14 @@
 #endif
 #include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 #include <soci/soci.h>
 #include "uWaveServer/database/client.hpp"
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 
 #define BATCHED_QUERY 1
+#define PACKET_BASED_SCHEMA
 
 using namespace UWaveServer::Database;
 
@@ -240,6 +242,113 @@ std::vector<UWaveServer::Packet>
     return result;
 }
 
+UWaveServer::Packet
+    queryRowToPacket(const double queryStartTime,
+                     const double queryEndTime,
+                     const std::string &network,
+                     const std::string &station,
+                     const std::string &channel,
+                     const std::string &locationCode,
+                     const double packetStartTime,
+                     const double samplingRate,
+                     const std::string &jsonStringData)
+{
+    UWaveServer::Packet packet;
+    packet.setNetwork(network);
+    packet.setStation(station);
+    packet.setChannel(channel);
+    packet.setLocationCode(locationCode);
+    packet.setSamplingRate(samplingRate);
+    packet.setStartTime(packetStartTime);
+    auto jsonData = nlohmann::json::parse(jsonStringData);
+    if (jsonData.contains("dataType") && jsonData.contains("samples"))
+    {
+        auto dataType = jsonData["dataType"].template get<std::string> ();
+        if (dataType == "integer")
+        {
+            auto data = jsonData["samples"].template get<std::vector<int>> ();
+            if (!data.empty()){packet.setData(std::move(data));}
+        }
+        else if (dataType == "double")
+        {
+            auto data
+                = jsonData["samples"].template get<std::vector<double>> ();
+            if (!data.empty()){packet.setData(std::move(data));}
+        }
+        else if (dataType == "integer64")
+        {
+            auto data
+                = jsonData["samples"].template get<std::vector<int64_t>> ();
+            if (!data.empty()){packet.setData(std::move(data));}
+        }
+        else if (dataType == "float")
+        {
+            auto data
+                = jsonData["samples"].template get<std::vector<float>> ();
+            if (!data.empty()){packet.setData(std::move(data));}
+        }
+        else
+        {
+            throw std::runtime_error("Unhandled data type " + dataType);
+        }
+        packet.trim(queryStartTime, queryEndTime);
+    }
+    else
+    {
+        throw std::runtime_error(
+            "JSON packet missing dataType or samples field");
+    }
+    return packet;
+}
+
+std::vector<UWaveServer::Packet> 
+    queryRowsToPackets(const double queryStartTime,
+                       const double queryEndTime,
+                       const std::string &network,
+                       const std::string &station,
+                       const std::string &channel,
+                       const std::string &locationCode,
+                       const std::vector<double> &packetStartTimes,
+                       const std::vector<double> &samplingRates,
+                       const std::vector<std::string> &jsonStringDatas)
+{
+    std::vector<UWaveServer::Packet> result;
+    int nPackets = static_cast<int> (packetStartTimes.size());
+#ifndef NDEBUG
+    assert(packetStartTimes.size() == samplingRates.size());
+    assert(packetStartTimes.size() == jsonStringDatas.size());
+#endif 
+    if (nPackets < 1){return result;}
+    result.reserve(nPackets);
+    for (int i = 0; i < nPackets; ++i)
+    {
+        try
+        {
+            //std::cout << std::setprecision(16) << queryStartTime << " " << packetStartTimes[i] << queryEndTime << std::endl;
+            auto packet = ::queryRowToPacket(queryStartTime,
+                                             queryEndTime,
+                                             network,
+                                             station,
+                                             channel,
+                                             locationCode,
+                                             packetStartTimes[i],
+                                             samplingRates[i],
+                                             jsonStringDatas[i]);
+            if (!packet.empty()){result.push_back(std::move(packet));}
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::warn("Failed to unpack packet because " + std::string {e.what()});
+        }
+    }
+    std::sort(result.begin(), result.end(),
+              [](const auto &lhs, const auto &rhs)
+              {
+                  return lhs.getStartTime() < rhs.getStartTime();
+              });
+    return result;
+}
+
 /// @brief Converts an input string to an upper-case string with no blanks.
 /// @param[in] s  The string to convert.
 /// @result The input string without blanks and in all capital letters.
@@ -446,8 +555,7 @@ public:
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
         }
-        auto session
-            = reinterpret_cast<soci::session *> (mConnection.getSession()); 
+        // Check the sensor is there
         constexpr bool addIfNotExists{false};
         auto sensorIdentifier
             = getSensorIdentifier(network, station, channel,
@@ -456,9 +564,152 @@ public:
         {
             throw std::invalid_argument("Could not obtain sensor identifier");
         }
+        // Time to work
+        auto session
+            = reinterpret_cast<soci::session *> (mConnection.getSession());
+#ifndef NDEBUG  
+        auto queryTimeStart = std::chrono::high_resolution_clock::now();
+#endif              
+#ifdef PACKET_BASED_SCHEMA
+#ifdef BATCHED_QUERY
+        constexpr int batchSize{64};
+        std::vector<double> packetStartTimes(batchSize);
+        std::vector<double> samplingRates(batchSize);
+        std::vector<std::string> stringDatas(batchSize);
+        std::vector<double> allPacketStartTimes;
+        allPacketStartTimes.reserve(512);
+        std::vector<double> allSamplingRates;
+        allSamplingRates.reserve(512);
+        std::vector<std::string> allStringDatas; 
+        allStringDatas.reserve(512);
+        soci::statement statement = (session->prepare <<
+            "SELECT EXTRACT(epoch FROM start_time), sampling_rate, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND start_time + MAKE_INTERVAL(secs => (n_samples - 1)/sampling_rate) > TO_TIMESTAMP(:startTime) AND start_time < TO_TIMESTAMP(:endTime)",
+            soci::use(sensorIdentifier),
+            soci::use(startTime),
+            soci::use(endTime),
+            soci::into(packetStartTimes),
+            soci::into(samplingRates),
+            soci::into(stringDatas));
+        statement.execute();
+        while (statement.fetch())
+        {
+            allStringDatas.insert(allStringDatas.end(),
+                                  stringDatas.begin(), stringDatas.end());
+            allSamplingRates.insert(allSamplingRates.end(),
+                                    samplingRates.begin(), samplingRates.end()); 
+            allPacketStartTimes.insert(allPacketStartTimes.end(),
+                                       packetStartTimes.begin(), packetStartTimes.end());
+            packetStartTimes.resize(batchSize);
+            samplingRates.resize(batchSize);
+            stringDatas.resize(batchSize);
+        }
 #ifndef NDEBUG
-        auto queryTimeStart = std::chrono::high_resolution_clock::now(); 
+        auto queryTimeEnd = std::chrono::high_resolution_clock::now();
+        double queryDuration
+             = std::chrono::duration_cast<std::chrono::microseconds>
+               (queryTimeEnd - queryTimeStart).count()*1.e-6;
+        spdlog::info("Query time to recover "
+                    + std::to_string(allStringDatas.size())
+                    + " packets was " + std::to_string(queryDuration) + " (s)");
+        auto unpackTimeStart = std::chrono::high_resolution_clock::now();
 #endif
+        result = ::queryRowsToPackets(startTime,
+                                      endTime,
+                                      network,
+                                      station,
+                                      channel,
+                                      locationCode,
+                                      allPacketStartTimes,
+                                      allSamplingRates,
+                                      allStringDatas);
+#ifndef NDEBUG
+        auto unpackTimeEnd = std::chrono::high_resolution_clock::now();
+        double unpackDuration
+             = std::chrono::duration_cast<std::chrono::microseconds>
+               (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
+        spdlog::info("Unpack time was  "
+                    + std::to_string(unpackDuration) + " (s)");
+
+#endif
+#else // not batched query
+        double packetStartTime{0};
+        double samplingRate{0};
+        int64_t packetNumber{0};
+        std::string stringData;
+        soci::statement statement = (session->prepare <<
+            "SELECT EXTRACT(epoch FROM start_time), sampling_rate, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND start_time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:startTime) + MAKE_INTERVAL(secs => (n_samples - 1)/sampling_rate)",
+            soci::use(sensorIdentifier),
+            soci::use(startTime),
+            soci::use(endTime),
+            soci::into(packetStartTime),
+            soci::into(samplingRate),
+            soci::into(stringData));
+        statement.execute();
+        int nPacketsRead = 0;
+        while (statement.fetch())
+        {
+            nPacketsRead = nPacketsRead + 1;
+            if (!stringData.empty())
+            {
+                UWaveServer::Packet packet;
+                try
+                {
+                    packet.setNetwork(network);
+                    packet.setStation(station);
+                    packet.setChannel(channel);
+                    packet.setLocationCode(locationCode);
+                    packet.setSamplingRate(samplingRate);
+                    packet.setStartTime(startTime);
+                    auto jsonData = nlohmann::json::parse(stringData);
+                    if (jsonData.contains("dataType") && jsonData.contains("samples"))
+                    {
+                        auto dataType = jsonData["dataType"].template get<std::string> ();
+                        if (dataType == "integer")
+                        {
+                            auto data = jsonData["samples"].template get<std::vector<int>> ();
+                            if (!data.empty()){packet.setData(std::move(data));}
+                        }
+                        else if (dataType == "double")
+                        {
+                            auto data = jsonData["samples"].template get<std::vector<double>> ();
+                            if (!data.empty()){packet.setData(std::move(data));}
+                        }    
+                        else if (dataType == "integer64")
+                        {
+                            auto data = jsonData["samples"].template get<std::vector<int64_t>> ();
+                            if (!data.empty()){packet.setData(std::move(data));}
+                        }
+                        else if (dataType == "float")
+                        {
+                            auto data = jsonData["samples"].template get<std::vector<float>> ();
+                            if (!data.empty()){packet.setData(std::move(data));}
+                        }
+                        else
+                        {
+                            spdlog::warn("Unhandled data type: " + dataType);
+                            continue;
+                        } 
+                    }
+                    else
+                    {
+                        spdlog::warn("Need dataType and samples key");
+                        continue;
+                    }
+                    result.push_back(std::move(packet));
+                }
+                catch (const std::exception &e)
+                {
+                    spdlog::warn(e.what());
+                } 
+           }
+        }
+        std::sort(result.begin(), result.end(),
+                  [](const auto &lhs, const auto &rhs)
+                  {
+                      return lhs.getStartTime() < rhs.getStartTime();
+                  });
+#endif
+#else // PACKET_BASED_SCHEMA
         constexpr int batchSize{8192};
         std::vector<::QueryRow> queryRows;
         queryRows.reserve(batchSize);
@@ -685,6 +936,7 @@ public:
         spdlog::info("Unpack time was  "
                     + std::to_string(unpackDuration) + " (s)");
 #endif
+#endif // PACKET_BASED_SCHEMA
         return result;
     }
  
@@ -705,20 +957,82 @@ public:
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
         }
+        // Get the sensor identifier
+        constexpr bool addIfNotExists{true};
+        auto sensorIdentifier = getSensorIdentifier(packet, addIfNotExists); // Throws
+        if (sensorIdentifier < 0) 
+        {
+            throw std::runtime_error("Could not obtain sensor identifier");
+        }
+        // Okay, let's get to work
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession()); 
+        // TODO this needs tuning.  It appears multiple batches results
+        // in some performance degradation so for now let's keep this big.
+#ifdef PACKET_BASED_SCHEMA
+        int64_t packetNumber = getNextPacketNumber(); // Throws
+        auto nSamples = static_cast<int> (packet.size()); 
+        auto startTime = packet.getStartTime().count()*1.e-6;
+        auto samplingRate = packet.getSamplingRate();
+        auto dataType = packet.getDataType();
+        nlohmann::json jsonData;
+        if (dataType == UWaveServer::Packet::DataType::Integer32)
+        {
+            auto dataPtr = static_cast<const int *> (packet.data());
+            std::vector<int> data{dataPtr, dataPtr + nSamples};
+            jsonData["dataType"] = "integer";
+            jsonData["samples"] = std::move(data);
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Integer64)
+        {
+            auto dataPtr = static_cast<const int64_t *> (packet.data());
+            std::vector<int64_t> data{dataPtr, dataPtr + nSamples};
+            jsonData["dataType"] = "integer64";
+            jsonData["samples"] = std::move(data);
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Double)
+        {
+            auto dataPtr = static_cast<const double *> (packet.data());
+            std::vector<double> data{dataPtr, dataPtr + nSamples};
+            jsonData["dataType"] = "double";
+            jsonData["samples"] = std::move(data);
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Float)
+        {
+            auto dataPtr = static_cast<const float *> (packet.data());
+            std::vector<float> data{dataPtr, dataPtr + nSamples};
+            jsonData["dataType"] = "float";
+            jsonData["samples"] = std::move(data);
+        }
+        else
+        {
+#ifndef NDEBUG
+            assert(false);
+#else
+            throw std::runtime_error("Unhandled data type");
+#endif
+        }
+        {
+        soci::transaction tr(*session);
+        auto stringData = std::string {jsonData.dump(-1)};
+        soci::statement statement = (session->prepare <<
+            "INSERT INTO packet(sensor_identifier, start_time, identifier, sampling_rate, n_samples, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :nSamples, :stringData) ON CONFLICT DO NOTHING",
+            soci::use(sensorIdentifier),
+            soci::use(startTime),
+            soci::use(packetNumber),
+            soci::use(samplingRate),
+            soci::use(nSamples),
+            soci::use(stringData));
+        statement.execute(true);
+        tr.commit();
+        }
+#else
         // TODO this needs tuning.  It appears multiple batches results
         // in some performance degradation so for now let's keep this big.
         constexpr int batchSize = 2048;
 #ifndef NDEBUG
         assert(batchSize > 0);
 #endif
-        constexpr bool addIfNotExists{true};
-        auto sensorIdentifier = getSensorIdentifier(packet, addIfNotExists); // Throws
-        if (sensorIdentifier < 0)
-        {
-            throw std::runtime_error("Could not obtain sensor identifier");
-        }
         int64_t packetNumber = getNextPacketNumber(); // Throws
         auto nSamples = packet.size(); 
         auto dataType = packet.getDataType();
@@ -899,7 +1213,7 @@ public:
             }
             throw std::runtime_error("Unhandled data type");
         }
-
+#endif
     }
     void getRetentionDuration()
     {

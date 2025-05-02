@@ -99,6 +99,12 @@ public:
     /// @result A raw pointer to the underlying data.
     [[nodiscard]] const void *data() const noexcept;
 
+    /// @brief Trims the time series so that the samples are between
+    ///        start time and end time.
+    void trim(const double startTime, const double endTime);
+    void trim(const std::chrono::microseconds &startTime,
+              const std::chrono::microseconds &endTime);
+
     /// @result The underlying data type.
     [[nodiscard]] DataType getDataType() const noexcept;
 

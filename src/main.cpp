@@ -285,7 +285,7 @@ int printEvery{0};
                           (t2 - t1).count()*1.e-6;
                     averageTime = averageTime + duration;
                     cumulativeTime = cumulativeTime + duration;
-                    nRowsWritten = nRowsWritten + packet.size();
+                    nRowsWritten = nRowsWritten + 1; //packet.size();
                     printEvery = printEvery + 1;
                     if (printEvery > 1000)
                     {
@@ -293,7 +293,7 @@ int printEvery{0};
                                    + " took: "
                                    + std::to_string (averageTime/printEvery)
                                    + " seconds.  ("
-                                   + std::to_string(std::round(nRowsWritten/cumulativeTime))
+                                   + std::to_string(static_cast<int> (std::round(nRowsWritten/cumulativeTime)))
                                    + " rows/second)" );
                         printEvery = 0;
                         averageTime = 0;
