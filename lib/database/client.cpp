@@ -1,5 +1,6 @@
 #include <iostream>
 #include <iomanip>
+#include <bit>
 #include <limits>
 #include <algorithm>
 #include <mutex>
@@ -15,232 +16,154 @@
 #include "uWaveServer/database/client.hpp"
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
+#include "private/pack.hpp"
 
-#define BATCHED_QUERY 1
+#define BATCHED_QUERY
 #define PACKET_BASED_SCHEMA
+#define USE_BYTEA
 
 using namespace UWaveServer::Database;
 
 namespace
 {
 
-struct QueryRow
-{   
-    QueryRow() = default;
-    QueryRow(const double samplingRateIn,
-             const double timeIn,
-             const int64_t packetNumberIn,
-             const int valueIn) :
-        samplingRate(samplingRateIn),
-        time(timeIn),
-        packetNumber(packetNumberIn),
-        value64f(0),
-        value64i(0),
-        value32i(valueIn),
-        value32f(0),
-        haveValue64f(false),
-        haveValue64i(false),
-        haveValue32i(true),
-        haveValue32f(false)
-    {
-    }
-    QueryRow(const double samplingRateIn,
-             const double timeIn,
-             const int64_t packetNumberIn,
-             const double valueIn) :
-        samplingRate(samplingRateIn),
-        time(timeIn),
-        packetNumber(packetNumberIn),
-        value64f(valueIn),
-        value64i(0),
-        value32i(0),
-        value32f(0),
-        haveValue64f(true),
-        haveValue64i(false),
-        haveValue32i(false),
-        haveValue32f(false)
-    {
-    }
-    QueryRow(const double samplingRateIn,
-             const double timeIn,
-             const int64_t packetNumberIn,
-             const int64_t valueIn) :
-        samplingRate(samplingRateIn),
-        time(timeIn),
-        packetNumber(packetNumberIn),
-        value64f(0),
-        value64i(valueIn),
-        value32i(0),
-        value32f(0),
-        haveValue64f(false),
-        haveValue64i(true),
-        haveValue32i(false),
-        haveValue32f(false)
-    {
-    }
-    QueryRow(const double samplingRateIn,
-             const double timeIn,
-             const float packetNumberIn,
-             const int valueIn) :
-        samplingRate(samplingRateIn),
-        time(timeIn),
-        packetNumber(packetNumberIn),
-        value64f(0),
-        value64i(0),
-        value32i(0),
-        value32f(valueIn),
-        haveValue64f(false),
-        haveValue64i(false),
-        haveValue32i(false),
-        haveValue32f(true)
-    {
-    }
-    double samplingRate{0};
-    double time{0};
-    int64_t packetNumber{-1};
-    double value64f{0};
-    int64_t value64i{0};
-    int value32i{0};
-    float value32f{0};
-    bool haveValue64f{false};
-    bool haveValue64i{false};
-    bool haveValue32i{false};
-    bool haveValue32f{false};
-};
-
-UWaveServer::Packet queryRowsToPacket(
-    const std::string &network,
-    const std::string &station,
-    const std::string &channel,
-    const std::string &locationCode,
-    const std::vector<::QueryRow> &rows,
-    const int64_t packetNumber)
+std::string pack(const int n, const int *values)
 {
-    // Make a list of the indices where this matches
-    std::vector<int> indices;
-    indices.reserve(rows.size());
-    for (int i = 0; i < static_cast<int> (rows.size()); ++i)
+    std::string result(4*n, '\0');
+    for (int i = 0; i < n; ++i)
     {
-        if (rows[i].packetNumber == packetNumber)
-        {
-            indices.push_back(i);
-        } 
+        packi4(values[i], result.data() + 4*i);
     }
-    if (indices.empty())
+    return result;
+}
+
+std::string pack(const int n, const float *values)
+{
+    std::string result(4*n, '\0');
+    for (int i = 0; i < n; ++i)
     {
-        throw std::invalid_argument(
-            "Could not find rows matching packet number "
-           + std::to_string(packetNumber));
+        packf4(values[i], result.data() + 4*i);
     }
-    // Figure out the data type.  Note, we inserted a packet into the database
-    // and tagged that packet with a unique identifyer.  Since the packet has
-    // a fixed data type determining the first data type is sufficient to know
-    // all the data types of subsequent samples.
-    auto &firstRow = rows.at(indices.at(0));
+    return result;
+}
+
+std::string pack(const int n, const double *values)
+{
+    std::string result(8*n, '\0');
+    for (int i = 0; i < n; ++i)
+    {
+        packf8(values[i], result.data() + 8*i);
+    }
+    return result;
+}
+
+std::string pack(const int n, const int64_t *values)
+{
+    std::string result(8*n, '\0');
+    for (int i = 0; i < n; ++i)
+    {
+        packi8(values[i], result.data() + 8*i);
+    }
+    return result;
+}
+
+UWaveServer::Packet
+    queryRowToPacket(const double queryStartTime,
+                     const double queryEndTime,
+                     const std::string &network,
+                     const std::string &station,
+                     const std::string &channel,
+                     const std::string &locationCode,
+                     const double packetStartTime,
+                     const double samplingRate,
+                     const int nSamples,
+                     const int8_t endiannes,
+                     const char dataType,
+                     std::string &hexStringData)
+{
     UWaveServer::Packet packet;
     packet.setNetwork(network);
     packet.setStation(station);
     packet.setChannel(channel);
     packet.setLocationCode(locationCode);
-    packet.setSamplingRate(firstRow.samplingRate);
-    packet.setStartTime(firstRow.time);
-    if (firstRow.haveValue32i)
+    packet.setSamplingRate(samplingRate);
+    packet.setStartTime(packetStartTime);
+    if (nSamples > 0 && !hexStringData.empty())
     {
-        std::vector<int> values;
-        values.reserve(indices.size());
-        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        if (hexStringData.find("\\x") == 0)
         {
-            values.push_back(rows[i].value32i);
-        }
-        packet.setData(std::move(values));
-    }
-    else if (firstRow.haveValue64f)
-    {
-        std::vector<double> values;
-        values.reserve(indices.size());
-        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+            hexStringData.erase(0, 2);
+        } 
+        if (dataType == 'i')
         {
-            values.push_back(rows[i].value64f);
+            auto data = ::unpackHexRepresentation<int> (hexStringData, nSamples);
+            if (!data.empty())
+            {
+                if constexpr (std::endian::native == std::endian::little)
+                {
+                    packet.setData(std::move(data));
+                }
+                else
+                {
+                    packet.setData(::reverseBytes(data));
+                }
+            }
         }
-        packet.setData(std::move(values));
-    }
-    else if (firstRow.haveValue64i)
-    {
-        std::vector<int64_t> values;
-        values.reserve(indices.size());
-        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        else if (dataType == 'f')
         {
-            values.push_back(rows[i].value64i);
+            auto data = ::unpackHexRepresentation<float> (hexStringData, nSamples);
+            if (!data.empty())
+            {
+                if constexpr (std::endian::native == std::endian::little)
+                {
+                    packet.setData(std::move(data));
+                }
+                else
+                {
+                    packet.setData(::reverseBytes(data));
+                }
+            }
         }
-        packet.setData(std::move(values));
-    }
-    else if (firstRow.haveValue32f)
-    {
-        std::vector<float> values;
-        values.reserve(indices.size());
-        for (int i = 0; i < static_cast<int> (indices.size()); ++i)
+        else if (dataType == 'l')
         {
-            values.push_back(rows[i].value32f);
+            auto data = ::unpackHexRepresentation<int64_t> (hexStringData, nSamples);
+            if (!data.empty())
+            {
+                if constexpr (std::endian::native == std::endian::little)
+                {
+                    packet.setData(std::move(data));
+                }
+                else
+                {
+                    packet.setData(::reverseBytes(data));
+                }
+            }
         }
-        packet.setData(std::move(values));
-    }
-    else
-    {
-        throw std::runtime_error("Unhandled data type in packing reconstruction");
+        else if (dataType == 'd')
+        {
+            auto data = ::unpackHexRepresentation<double> (hexStringData, nSamples);
+            if (!data.empty())
+            {
+                if constexpr (std::endian::native == std::endian::little)
+                {
+                    packet.setData(std::move(data));
+                }
+                else
+                {
+                    packet.setData(::reverseBytes(data));
+                }
+            }
+        }
+        else
+        {
+            throw std::invalid_argument("Unhandled precision");
+        }
+        if (packet.empty()){throw std::runtime_error("Packet has no data samples");}
+        packet.trim(queryStartTime, queryEndTime);
     }
     return packet;
 }
 
-std::vector<int64_t> uniquePacketNumbers(
-    const std::vector<::QueryRow> &rows)
-{
-    std::vector<int64_t> packetNumbers;
-    if (rows.empty()){return packetNumbers;}
-    if (rows.size() == 1)
-    {
-        packetNumbers.push_back(rows.at(0).packetNumber); 
-        return packetNumbers;
-    }
-    packetNumbers.resize(rows.size());
-    for (int i = 0; i < static_cast<int> (rows.size()); ++i)
-    {
-        packetNumbers[i] = rows[i].packetNumber;
-    }
-    std::sort(packetNumbers.begin(), packetNumbers.end());
-    auto last = std::unique(packetNumbers.begin(), packetNumbers.end());
-    packetNumbers.erase(last, packetNumbers.end());
-    return packetNumbers;
-}
-
-std::vector<UWaveServer::Packet> 
-    queryRowsToPackets(const std::string &network,
-                       const std::string &station,
-                       const std::string &channel,
-                       const std::string &locationCode,
-                       const std::vector<::QueryRow> &rows)
-{
-    std::vector<UWaveServer::Packet> result;
-    if (rows.empty()){return result;}
-    auto packetNumbers = ::uniquePacketNumbers(rows);
-    for (const auto &packetNumber : packetNumbers)
-    {
-        try
-        {
-            auto packet
-                = ::queryRowsToPacket(network, station, channel, locationCode, rows, packetNumber);
-            result.push_back(std::move(packet));
-        }
-        catch (...)
-        {
-        }
-    }
-    std::sort(result.begin(), result.end(),
-              [](const auto &lhs, const auto &rhs)
-              {
-                  return lhs.getStartTime() < rhs.getStartTime();
-              });
-    return result;
-}
 
 UWaveServer::Packet
     queryRowToPacket(const double queryStartTime,
@@ -299,6 +222,64 @@ UWaveServer::Packet
             "JSON packet missing dataType or samples field");
     }
     return packet;
+}
+
+std::vector<UWaveServer::Packet>
+    queryRowsToPackets(const double queryStartTime,
+                       const double queryEndTime,
+                       const std::string &network,
+                       const std::string &station,
+                       const std::string &channel,
+                       const std::string &locationCode,
+                       const std::vector<double> &packetStartTimes,
+                       const std::vector<double> &samplingRates,
+                       const std::vector<int> &packetSizes,
+                       const std::vector<int8_t> &endians,
+                       const std::vector<char> &dataTypes,
+                       std::vector<std::string> &hexStringDatas)
+{
+    std::vector<UWaveServer::Packet> result;
+    int nPackets = static_cast<int> (packetStartTimes.size());
+#ifndef NDEBUG
+    assert(packetStartTimes.size() == samplingRates.size());
+    assert(packetStartTimes.size() == packetSizes.size());
+    assert(packetStartTimes.size() == endians.size());
+    assert(packetStartTimes.size() == dataTypes.size());
+    assert(packetStartTimes.size() == hexStringDatas.size());
+#endif 
+    if (nPackets < 1){return result;}
+    result.reserve(nPackets);
+    for (int i = 0; i < nPackets; ++i)
+    {
+        try
+        {
+            //std::cout << std::setprecision(16) << queryStartTime << " " << packetStartTimes[i] << queryEndTime << std::endl;
+            auto packet = ::queryRowToPacket(queryStartTime,
+                                             queryEndTime,
+                                             network,
+                                             station,
+                                             channel,
+                                             locationCode,
+                                             packetStartTimes[i],
+                                             samplingRates[i],
+                                             packetSizes[i],
+                                             endians[i], 
+                                             dataTypes[i],
+                                             hexStringDatas[i]);
+            if (!packet.empty()){result.push_back(std::move(packet));}
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::warn("Failed to unpack packet because "
+                       + std::string {e.what()});
+        }
+    }
+    std::sort(result.begin(), result.end(),
+              [](const auto &lhs, const auto &rhs)
+              {
+                  return lhs.getStartTime() < rhs.getStartTime();
+              });
+    return result;
 }
 
 std::vector<UWaveServer::Packet> 
@@ -570,9 +551,70 @@ public:
 #ifndef NDEBUG  
         auto queryTimeStart = std::chrono::high_resolution_clock::now();
 #endif              
-#ifdef PACKET_BASED_SCHEMA
 #ifdef BATCHED_QUERY
         constexpr int batchSize{64};
+  #ifdef USE_BYTEA
+        std::vector<double> packetStartTimes(batchSize);
+        std::vector<double> packetSamplingRates(batchSize);
+        std::vector<int> packetLengths(batchSize);
+        std::vector<char> dataSignifiers(batchSize);
+        std::vector<int8_t> endiannesses(batchSize);
+        std::vector<std::string> packetByteArrays(batchSize);
+
+        std::vector<double> allPacketStartTimes;
+        allPacketStartTimes.reserve(512);
+        std::vector<double> allPacketSamplingRates;
+        allPacketSamplingRates.reserve(512);
+        std::vector<int> allPacketLengths;
+        allPacketLengths.reserve(512);
+        std::vector<char> allDataSignifiers;
+        allDataSignifiers.reserve(512);
+        std::vector<int8_t> allEndiannesses;
+        allEndiannesses.reserve(512);
+        std::vector<std::string> allPacketByteArrays;
+        allPacketByteArrays.reserve(512); 
+
+        soci::statement statement = (session->prepare <<
+            "SELECT EXTRACT(epoch FROM start_time), sampling_rate, n_samples, datatype, little_endian, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND end_time > TO_TIMESTAMP(:startTime) AND start_time < TO_TIMESTAMP(:endTime)",
+            soci::use(sensorIdentifier),
+            soci::use(startTime),
+            soci::use(endTime),
+            soci::into(packetStartTimes),
+            soci::into(packetSamplingRates),
+            soci::into(packetLengths),
+            soci::into(dataSignifiers),
+            soci::into(endiannesses),
+            soci::into(packetByteArrays));
+        statement.execute();
+        while (statement.fetch())
+        {
+            allPacketStartTimes.insert(allPacketStartTimes.end(),
+                                       packetStartTimes.begin(),
+                                       packetStartTimes.end());
+            allPacketSamplingRates.insert(allPacketSamplingRates.end(),
+                                          packetSamplingRates.begin(),
+                                          packetSamplingRates.end());
+            allPacketLengths.insert(allPacketLengths.end(),
+                                    packetLengths.begin(),
+                                    packetLengths.end());
+            allDataSignifiers.insert(allDataSignifiers.end(),
+                                     dataSignifiers.begin(),
+                                     dataSignifiers.end());
+            allEndiannesses.insert(allEndiannesses.end(),
+                                   endiannesses.begin(),
+                                   endiannesses.end());
+            allPacketByteArrays.insert(allPacketByteArrays.end(),
+                                       packetByteArrays.begin(),
+                                       packetByteArrays.end());
+
+            packetStartTimes.resize(batchSize);
+            packetSamplingRates.resize(batchSize);
+            packetLengths.resize(batchSize);
+            dataSignifiers.resize(batchSize);
+            endiannesses.resize(batchSize);
+            packetByteArrays.resize(batchSize);
+        }
+  #else // BYTEA
         std::vector<double> packetStartTimes(batchSize);
         std::vector<double> samplingRates(batchSize);
         std::vector<std::string> stringDatas(batchSize);
@@ -583,7 +625,7 @@ public:
         std::vector<std::string> allStringDatas; 
         allStringDatas.reserve(512);
         soci::statement statement = (session->prepare <<
-            "SELECT EXTRACT(epoch FROM start_time), sampling_rate, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND start_time + MAKE_INTERVAL(secs => (n_samples - 1)/sampling_rate) > TO_TIMESTAMP(:startTime) AND start_time < TO_TIMESTAMP(:endTime)",
+            "SELECT EXTRACT(epoch FROM start_time), sampling_rate, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND end_time > TO_TIMESTAMP(:startTime) AND start_time < TO_TIMESTAMP(:endTime)",
             soci::use(sensorIdentifier),
             soci::use(startTime),
             soci::use(endTime),
@@ -603,16 +645,31 @@ public:
             samplingRates.resize(batchSize);
             stringDatas.resize(batchSize);
         }
-#ifndef NDEBUG
+  #endif
+  #ifndef NDEBUG
         auto queryTimeEnd = std::chrono::high_resolution_clock::now();
         double queryDuration
-             = std::chrono::duration_cast<std::chrono::microseconds>
-               (queryTimeEnd - queryTimeStart).count()*1.e-6;
+            = std::chrono::duration_cast<std::chrono::microseconds>
+              (queryTimeEnd - queryTimeStart).count()*1.e-6;
         spdlog::info("Query time to recover "
-                    + std::to_string(allStringDatas.size())
-                    + " packets was " + std::to_string(queryDuration) + " (s)");
+                   + std::to_string(allPacketStartTimes.size())
+                   + " packets was " + std::to_string(queryDuration) + " (s)");
         auto unpackTimeStart = std::chrono::high_resolution_clock::now();
-#endif
+  #endif
+  #ifdef USE_BYTEA
+        result = ::queryRowsToPackets(startTime,
+                                      endTime,
+                                      network,
+                                      station,
+                                      channel,
+                                      locationCode,
+                                      allPacketStartTimes,
+                                      allPacketSamplingRates,
+                                      allPacketLengths,
+                                      allEndiannesses,
+                                      allDataSignifiers,
+                                      allPacketByteArrays);
+  #else
         result = ::queryRowsToPackets(startTime,
                                       endTime,
                                       network,
@@ -622,20 +679,22 @@ public:
                                       allPacketStartTimes,
                                       allSamplingRates,
                                       allStringDatas);
-#ifndef NDEBUG
+  #endif
+  #ifndef NDEBUG
         auto unpackTimeEnd = std::chrono::high_resolution_clock::now();
         double unpackDuration
-             = std::chrono::duration_cast<std::chrono::microseconds>
-               (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
+            = std::chrono::duration_cast<std::chrono::microseconds>
+              (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
         spdlog::info("Unpack time was  "
                     + std::to_string(unpackDuration) + " (s)");
 
-#endif
+  #endif
 #else // not batched query
         double packetStartTime{0};
         double samplingRate{0};
         int64_t packetNumber{0};
         std::string stringData;
+        // TODO bad query -> use the endTime
         soci::statement statement = (session->prepare <<
             "SELECT EXTRACT(epoch FROM start_time), sampling_rate, data FROM packet WHERE sensor_identifier = :sensorIdentifier AND start_time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:startTime) + MAKE_INTERVAL(secs => (n_samples - 1)/sampling_rate)",
             soci::use(sensorIdentifier),
@@ -708,235 +767,15 @@ public:
                   {
                       return lhs.getStartTime() < rhs.getStartTime();
                   });
-#endif
-#else // PACKET_BASED_SCHEMA
-        constexpr int batchSize{8192};
-        std::vector<::QueryRow> queryRows;
-        queryRows.reserve(batchSize);
-#ifdef BATCHED_QUERY
-        std::vector<int64_t> sensorIdentifiers(batchSize);
-        std::vector<double> times(batchSize);
-        std::vector<double> samplingRates(batchSize);
-        std::vector<int64_t> packetNumbers(batchSize);
-        std::vector<std::optional<int>> values32i(batchSize);
-        std::vector<std::optional<double>> values32f(batchSize);
-        std::vector<std::optional<double>> values64f(batchSize);
-        std::vector<std::optional<int64_t>> values64i(batchSize);
-        soci::statement statement = (session->prepare <<
-            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime)", // ORDER BY time ASC",
-        soci::use(sensorIdentifier),
-        soci::use(startTime),
-        soci::use(endTime),
-        soci::into(times),
-        soci::into(samplingRates),
-        soci::into(packetNumbers),
-        soci::into(values32i),
-        soci::into(values32f),
-        soci::into(values64f),
-        soci::into(values64i));
-        statement.execute();
-        int nSamplesRead = 0;
-        int8_t firstDataType{-1};
-        bool mixedPrecision{false};
-        while (statement.fetch())
-        {
-            for (int i = 0; i < static_cast<int> (times.size()); ++i)
-            {
-                nSamplesRead = nSamplesRead + 1;
-                if (values32i[i])
-                {
-                    if (queryRows.empty()){firstDataType = 1;}
-                    if (firstDataType != 1){mixedPrecision = true;}
-                    QueryRow row
-                    {
-                       samplingRates[i],
-                       times[i],
-                       packetNumbers[i], *values32i[i]
-                    };
-                    queryRows.push_back(std::move(row));
-                }
-                else if (values32f[i])
-                {
-                    if (queryRows.empty()){firstDataType = 1;}
-                    if (firstDataType != 1){mixedPrecision = true;}
-                    auto value = static_cast<float> (*values32f[i]);
-                    QueryRow row
-                    {
-                       samplingRates[i],
-                       times[i],
-                       packetNumbers[i], value
-                    };
-                    queryRows.push_back(std::move(row));
-                }
-                else if (values64f[i])
-                {
-                    if (queryRows.empty()){firstDataType = 1;}
-                    if (firstDataType != 1){mixedPrecision = true;}
-                    QueryRow row
-                    {
-                       samplingRates[i],
-                       times[i],
-                       packetNumbers[i], *values64f[i]
-                    };
-                    queryRows.push_back(std::move(row));
-                }
-                else if (values64i[i])
-                {
-                    if (queryRows.empty()){firstDataType = 1;}
-                    if (firstDataType != 1){mixedPrecision = true;}
-                    QueryRow row
-                    {
-                       samplingRates[i],
-                       times[i],
-                       packetNumbers[i], *values64i[i]
-                    };
-                    queryRows.push_back(std::move(row));
-                }
-                else
-                {
-                    spdlog::warn("Unhandled data type from SELECT");
-                }
-            }
-            times.resize(batchSize); 
-            samplingRates.resize(batchSize);
-            packetNumbers.resize(batchSize);
-            values32i.resize(batchSize);
-            values32f.resize(batchSize);
-            values64f.resize(batchSize);
-            values64i.resize(batchSize);
-        }
-#else
-        double samplingRate{0};
-        double time{0};
-        int64_t packetNumber{0};
-        std::optional<int> value32i;
-        std::optional<double> value32f;
-        std::optional<double> value64f;
-        std::optional<int64_t> value64i;
-        int8_t firstDataType{-1};
-        bool mixedPrecision{false};
-        soci::statement statement = (session->prepare <<
-            "SELECT EXTRACT(epoch FROM time), sampling_rate, packet_number, value_i32, value_f32, value_f64, value_i64 FROM sample WHERE sensor_identifier = :sensorIdentifier AND time BETWEEN TO_TIMESTAMP(:startTime) AND TO_TIMESTAMP(:endTime)", // ORDER BY time ASC",
-        soci::use(sensorIdentifier),
-        soci::use(startTime),
-        soci::use(endTime),
-        soci::into(time),
-        soci::into(samplingRate),
-        soci::into(packetNumber),
-        soci::into(value32i), //, indicator32i),
-        soci::into(value32f), //, indicator32f),
-        soci::into(value64f), //, indicator64f),
-        soci::into(value64i)); //, indicator64i));
-        statement.execute();
-        int nSamplesRead = 0;
-        while (statement.fetch())
-        {
-            nSamplesRead = nSamplesRead + 1;
-            //std::cout << std::setprecision(16) << time << " " << value32i << " " << packetNumber << std::endl;
-            if (value32i) //indicator32i == soci::indicator::i_ok)
-            {
-                if (queryRows.empty()){firstDataType = 1;}
-                if (firstDataType != 1){mixedPrecision = true;}
-                QueryRow row
-                {
-                    samplingRate,
-                    time,
-                    packetNumber, *value32i
-                };
-                queryRows.push_back(std::move(row));
-            }
-            else if (value32f) //indicator32f == soci::indicator::i_ok)
-            {
-                if (queryRows.empty()){firstDataType = 2;}
-                if (firstDataType != 2){mixedPrecision = true;}
-                auto value = static_cast<float> (*value32f);
-                QueryRow row
-                {
-                    samplingRate,
-                    time,
-                    packetNumber, value
-                };
-                queryRows.push_back(std::move(row));
-            }
-            else if (value64f) //indicator64f == soci::indicator::i_ok)
-            {
-                if (queryRows.empty()){firstDataType = 3;}
-                if (firstDataType != 3){mixedPrecision = true;}
-                QueryRow row
-                {
-                    samplingRate,
-                    time,
-                    packetNumber, *value64f
-                };
-                queryRows.push_back(std::move(row));
-            }
-            else if (value64i) //indicator64i == soci::indicator::i_ok)
-            {
-                if (queryRows.empty()){firstDataType = 4;}
-                if (firstDataType != 4){mixedPrecision = true;}
-                QueryRow row
-                {
-                    samplingRate,
-                    time,
-                    packetNumber, *value64i
-                };
-                queryRows.push_back(std::move(row));
-            }
-            else
-            {
-                spdlog::warn("Unhandled data type");
-            }
-        }
-#endif
-        if (mixedPrecision)
-        {
-            throw std::runtime_error("Cannot handle mixed precision");
-        }
-        if (nSamplesRead != static_cast<int> (queryRows.size()))
-        {
-            spdlog::warn("Only unpacked " + std::to_string(queryRows.size()) 
-                       + " rows out of " + std::to_string(nSamplesRead));
-        }
-
-        if (!std::is_sorted(queryRows.begin(), queryRows.end(),
-                            [](const auto &lhs, const auto &rhs)
-                            {
-                                return lhs.time < rhs.time;
-                            }))
-        {
-            spdlog::debug("Sorting");
-            std::sort(queryRows.begin(), queryRows.end(),
-                      [](const auto &lhs, const auto &rhs)
-                      {
-                          return lhs.time < rhs.time; 
-                      });
-        }
 #ifndef NDEBUG
-        assert(std::is_sorted(queryRows.begin(), queryRows.end(),
-                              [](const auto &lhs, const auto &rhs)
-                              {
-                                  return lhs.time < rhs.time;
-                              }));
-        auto queryTimeEnd = std::chrono::high_resolution_clock::now();
-        double queryDuration
-             = std::chrono::duration_cast<std::chrono::microseconds>
-               (queryTimeEnd - queryTimeStart).count()*1.e-6;
-        spdlog::info("Query time to recover "
-                    + std::to_string(nSamplesRead)
-                    + " samples was " + std::to_string(queryDuration) + " (s)");
-        auto unpackTimeStart = std::chrono::high_resolution_clock::now();
-#endif
-        result = ::queryRowsToPackets(network, station, channel,
-                                      locationCode, queryRows);
-#ifndef NDEBUG
-        auto unpackTimeEnd = std::chrono::high_resolution_clock::now();
-        double unpackDuration
+        unpackTimeEnd = std::chrono::high_resolution_clock::now();
+        unpackDuration
              = std::chrono::duration_cast<std::chrono::microseconds>
                (unpackTimeEnd - unpackTimeStart).count()*1.e-6;
         spdlog::info("Unpack time was  "
                     + std::to_string(unpackDuration) + " (s)");
 #endif
-#endif // PACKET_BASED_SCHEMA
+#endif
         return result;
     }
  
@@ -969,12 +808,41 @@ public:
             = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         // TODO this needs tuning.  It appears multiple batches results
         // in some performance degradation so for now let's keep this big.
-#ifdef PACKET_BASED_SCHEMA
         int64_t packetNumber = getNextPacketNumber(); // Throws
         auto nSamples = static_cast<int> (packet.size()); 
         auto startTime = packet.getStartTime().count()*1.e-6;
+        auto endTime = packet.getEndTime().count()*1.e-6;
         auto samplingRate = packet.getSamplingRate();
         auto dataType = packet.getDataType();
+#ifdef USE_BYTEA
+        constexpr bool usePrefix{false}; // PG doesn't require us to prepend a 0x 
+        std::string hexEncodedData;
+        char dataTypeSignifier = 'i';
+        if (dataType == UWaveServer::Packet::DataType::Integer32)
+        {
+            auto dataPtr = static_cast<const int *> (packet.data());
+            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            dataTypeSignifier = 'i';
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Integer64)
+        {
+            auto dataPtr = static_cast<const int64_t *> (packet.data());
+            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            dataTypeSignifier = 'l';
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Double)
+        {
+            auto dataPtr = static_cast<const double *> (packet.data());
+            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            dataTypeSignifier = 'd';
+        }
+        else if (dataType == UWaveServer::Packet::DataType::Float)
+        {
+            auto dataPtr = static_cast<const float *> (packet.data());
+            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            dataTypeSignifier = 'f';
+        }
+#else
         nlohmann::json jsonData;
         if (dataType == UWaveServer::Packet::DataType::Integer32)
         {
@@ -1004,6 +872,7 @@ public:
             jsonData["dataType"] = "float";
             jsonData["samples"] = std::move(data);
         }
+#endif // USE_BYTEA
         else
         {
 #ifndef NDEBUG
@@ -1014,206 +883,36 @@ public:
         }
         {
         soci::transaction tr(*session);
-        auto stringData = std::string {jsonData.dump(-1)};
+#ifdef USE_BYTEA
+        int8_t littleEndian = (std::endian::native == std::endian::little) ? 1 : 0;
         soci::statement statement = (session->prepare <<
-            "INSERT INTO packet(sensor_identifier, start_time, identifier, sampling_rate, n_samples, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :nSamples, :stringData) ON CONFLICT DO NOTHING",
+            "INSERT INTO packet(sensor_identifier, start_time, end_time, identifier, sampling_rate, n_samples, datatype, little_endian, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :packetNumber, :samplingRate, :nSamples, :dataType, :littleEndian, DECODE(:data, 'hex')) ON CONFLICT DO NOTHING",
             soci::use(sensorIdentifier),
             soci::use(startTime),
+            soci::use(endTime),
             soci::use(packetNumber),
             soci::use(samplingRate),
             soci::use(nSamples),
+            soci::use(dataTypeSignifier),
+            soci::use(littleEndian),
+            soci::use(hexEncodedData));
+#else
+        auto stringData = std::string {jsonData.dump(-1)};
+        soci::statement statement = (session->prepare <<
+            "INSERT INTO packet(sensor_identifier, start_time, end_time, identifier, sampling_rate, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :samplingRate, :packetNumber, :data) ON CONFLICT DO NOTHING",
+            soci::use(sensorIdentifier),
+            soci::use(startTime),
+            soci::use(endTime),
+            soci::use(packetNumber),
+            soci::use(samplingRate),
+            //soci::use(nSamples),
+            //soci::use(dataTypeSignifier),
+            //soci::use(mLittleEndian),
             soci::use(stringData));
+#endif
         statement.execute(true);
         tr.commit();
         }
-#else
-        // TODO this needs tuning.  It appears multiple batches results
-        // in some performance degradation so for now let's keep this big.
-        constexpr int batchSize = 2048;
-#ifndef NDEBUG
-        assert(batchSize > 0);
-#endif
-        int64_t packetNumber = getNextPacketNumber(); // Throws
-        auto nSamples = packet.size(); 
-        auto dataType = packet.getDataType();
-        auto startTime = packet.getStartTime().count()*1.e-6;
-        auto samplingRate = packet.getSamplingRate();
-        auto samplingPeriod = 1./samplingRate;
-        int nBatches = nSamples/batchSize + 1;
-        if (dataType == UWaveServer::Packet::DataType::Integer32)
-        {
-            //spdlog::info("Writing "
-            //            + std::to_string(nSamples)
-            //            + " samples for packet " + ::toName(packet));
-            // N.B. we want to do a bulk insert.  The ON CONFLICT DO NOTHING
-            // means that the old data perserveres in case the
-            // (identifier, time) already exists.  This is an optimization
-            // that also prevents the entire batch from failing in the case
-            // of one bad sample.
-            auto valuesPtr = static_cast<const int *> (packet.data());
-            {
-            soci::transaction tr(*session);
-            for (int batch = 0; batch < nBatches; ++batch)
-            {
-                int i1 = batch*batchSize;
-                int i2 = std::min(i1 + batchSize, nSamples);
-#ifndef NDEBUG
-                assert(i2 <= nSamples);
-#endif
-                auto nFill = i2 - i1; 
-                if (nFill < 1){break;}
-
-                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
-                std::vector<double> samplingRates(nFill, samplingRate);
-                std::vector<int64_t> packetNumbers(nFill, packetNumber);
-                std::vector<double> times(nFill);
-                std::vector<int> values(nFill);
-                ::fill(nFill,
-                       i1,
-                       startTime,
-                       samplingPeriod,
-                       valuesPtr,
-                       times, values);
-                // Create the insert statement
-                soci::statement statement = (session->prepare <<
-                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifiers),
-                soci::use(times),
-                soci::use(samplingRates),
-                soci::use(packetNumbers),
-                soci::use(values)); 
-                statement.execute(true);
-            }
-            tr.commit();
-            } 
-            //spdlog::info("Finished writing integer packet");
-        }
-        else if (dataType == UWaveServer::Packet::DataType::Float)
-        {
-            auto valuesPtr = static_cast<const float *> (packet.data());
-            {
-            soci::transaction tr(*session);
-            for (int batch = 0; batch < nBatches; ++batch)
-            {
-                int i1 = batch*batchSize;
-                int i2 = std::min(i1 + batchSize, nSamples);
-#ifndef NDEBUG
-                assert(i2 <= nSamples);
-#endif
-                auto nFill = i2 - i1; 
-                if (nFill < 1){break;}
-
-                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
-                std::vector<double> samplingRates(nFill, samplingRate);
-                std::vector<int64_t> packetNumbers(nFill, packetNumber);
-                std::vector<double> times(nFill);
-                std::vector<double> values(nFill);
-                ::fill(nFill,
-                       i1,
-                       startTime,
-                       samplingPeriod,
-                       valuesPtr,
-                       times, values);
-                // Create the insert statement
-                soci::statement statement = (session->prepare <<
-                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f32) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifiers),
-                soci::use(times),
-                soci::use(samplingRates),
-                soci::use(packetNumbers),
-                soci::use(values)); 
-                statement.execute(true);
-            }
-            tr.commit();
-            }
-        }
-        else if (dataType == UWaveServer::Packet::DataType::Double)
-        {
-            auto valuesPtr = static_cast<const double *> (packet.data());
-            {
-            soci::transaction tr(*session);
-            for (int batch = 0; batch < nBatches; ++batch)
-            {
-                int i1 = batch*batchSize;
-                int i2 = std::min(i1 + batchSize, nSamples);
-#ifndef NDEBUG
-                assert(i2 <= nSamples);
-#endif
-                auto nFill = i2 - i1; 
-                if (nFill < 1){break;}
-
-                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
-                std::vector<double> samplingRates(nFill, samplingRate);
-                std::vector<int64_t> packetNumbers(nFill, packetNumber);
-                std::vector<double> times(nFill);
-                std::vector<double> values(nFill);
-                ::fill(nFill,
-                       i1,
-                       startTime,
-                       samplingPeriod,
-                       valuesPtr,
-                       times, values);
-                // Create the insert statement
-                soci::statement statement = (session->prepare <<
-                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_f64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifiers),
-                soci::use(times),
-                soci::use(samplingRates),
-                soci::use(packetNumbers),
-                soci::use(values)); 
-                statement.execute(true);
-            }
-            tr.commit();
-            }
-        }
-        else if (dataType == UWaveServer::Packet::DataType::Integer64)
-        {
-            auto valuesPtr = static_cast<const int64_t *> (packet.data());
-            {
-            soci::transaction tr(*session);
-            for (int batch = 0; batch < nBatches; ++batch)
-            {
-                int i1 = batch*batchSize;
-                int i2 = std::min(i1 + batchSize, nSamples);
-#ifndef NDEBUG
-                assert(i2 <= nSamples);
-#endif
-                auto nFill = i2 - i1; 
-                if (nFill < 1){break;}
-
-                std::vector<int> sensorIdentifiers(nFill, sensorIdentifier);
-                std::vector<double> samplingRates(nFill, samplingRate);
-                std::vector<int64_t> packetNumbers(nFill, packetNumber);
-                std::vector<double> times(nFill);
-                std::vector<int64_t> values(nFill);
-                ::fill(nFill,
-                       i1,
-                       startTime,
-                       samplingPeriod,
-                       valuesPtr,
-                       times, values);
-                // Create the insert statement
-                soci::statement statement = (session->prepare <<
-                    "INSERT INTO sample(sensor_identifier, time, sampling_rate, packet_number, value_i64) VALUES (:sensorIdentifier, TO_TIMESTAMP(:time), :samplingRate, :packetNumber, :value) ON CONFLICT DO NOTHING",
-                soci::use(sensorIdentifiers),
-                soci::use(times),
-                soci::use(samplingRates),
-                soci::use(packetNumbers),
-                soci::use(values)); 
-                statement.execute(true);
-            }
-            tr.commit();
-            }
-        }
-        else
-        {
-            if (dataType == UWaveServer::Packet::DataType::Unknown)
-            {
-                throw std::invalid_argument("Data type cannot be unknown");
-            }
-            throw std::runtime_error("Unhandled data type");
-        }
-#endif
     }
     void getRetentionDuration()
     {
@@ -1301,6 +1000,7 @@ public:
     mutable Connection::PostgreSQL mConnection;
     mutable std::map<std::string, int> mSensorIdentifiers;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
+    int8_t mLittleEndian{std::endian::native == std::endian::little ? 1 : 0};
 };
 
 /// Constructor

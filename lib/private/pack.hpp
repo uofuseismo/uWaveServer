@@ -277,42 +277,113 @@ std::vector<T> unpack(const int nValues, const char *packedValues, const bool sw
     return result;
 }
 
+/// @brief Performs a byte swap on a value.
+/// @todo In the future C++ may add primitives for this.  Currently,
+///       reverse_byte is limited to an int.
 template<typename T>
-std::string hexRepresentation(const std::vector<T> &v, 
+T reverseBytes(const T value)
+{
+    union
+    {
+        char c[sizeof(T)];
+        T localValue{0};
+    };
+    localValue = value;
+    std::reverse(c, c + sizeof(T));
+    return localValue;
+}
+
+template<typename T>
+std::vector<T> reverseBytes(const std::vector<T> &input)
+{
+    std::vector<T> result(input.size());
+    for (int i = 0; i < static_cast<int> (input.size()); ++i)
+    {
+        result[i] = ::reverseBytes(input[i]);
+    }
+    return result;
+}
+
+/// @brief Creates a hex representation of the input data vector
+///        and forces the byte order as if this machine were little
+///        endian.
+template<typename T>
+std::string hexRepresentation(const T *v, const int n,
                               bool usePrefix = false)
 {
     std::stringstream stream;
     if (usePrefix){stream << "0x";}
     if constexpr (std::same_as<int, T> || std::same_as<int64_t, T>) 
     {
-        for (const auto &num : v)
+        if constexpr (std::endian::native == std::endian::little)
         {
-            stream << std::hex
-                   << std::setw(2*sizeof(T))
-                   << std::setfill('0')
-                   << num;
+            for (int i = 0; i < n; ++i)
+            {
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << v[i];
+            }
+        }
+        else
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << ::reverseBytes(v[i]);
+            }
         }
     }
     else if constexpr (std::same_as<float, T>)
     {
-        for (const auto &num : v)
+        if constexpr (std::endian::native == std::endian::little)
         {
-            auto value = std::bit_cast<int32_t> (num);
-            stream << std::hex
-                   << std::setw(2*sizeof(T))
-                   << std::setfill('0')
-                   << value;
+            for (int i = 0; i < n; ++i)
+            {
+                auto value = std::bit_cast<int32_t> (v[i]);
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << value;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < n; ++i)
+            {   
+                auto value = std::bit_cast<int32_t> (::reverseBytes(v[i]));
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << value;
+            }   
         }
     }
     else if constexpr (std::same_as<double, T>)
     {
-        for (const auto &num : v)
+        if constexpr (std::endian::native == std::endian::little)
         {
-            auto value = std::bit_cast<int64_t> (num);
-            stream << std::hex
-                   << std::setw(2*sizeof(T))
-                   << std::setfill('0')
-                   << value;
+            for (int i = 0; i < n; ++i)
+            {
+                auto value = std::bit_cast<int64_t> (v[i]);
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << value;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                auto value = std::bit_cast<int64_t> (::reverseBytes(v[i]));
+                stream << std::hex
+                       << std::setw(2*sizeof(T))
+                       << std::setfill('0')
+                       << value;
+            }
         }
     }
     else
@@ -322,27 +393,72 @@ std::string hexRepresentation(const std::vector<T> &v,
     return stream.str();
 }
 
-[[nodiscard]] int getNonZeroStartIndex(const std::string &s,
-                                       const int i,
-                                       const int stepSize)
+/// @brief Writes a vector to a hex representation and forces the 
+///        the writing to happen as if this machine were little endian.
+template<typename T>
+std::string hexRepresentation(const std::vector<T> &v,
+                              const bool usePrefix = false)
 {
-    // We pre-pad with 0
-    auto i1 = i*stepSize;
+    return ::hexRepresentation(v.data(), static_cast<int> (v.size()), usePrefix); 
+}
+
+template<typename T>
+[[nodiscard]] inline int getNonZeroStartIndex(const std::string &s,
+                                              const int i)
+{
+    constexpr int stepSize = 2*sizeof(T);
+/*
+    const int offset = i*stepSize;
+    const char *cStr = s.c_str() + offset;
+    if constexpr (std::same_as<T, int> || std::same_as<T, float>)
+    {
+        if (cStr[0] != '0'){return offset;}
+        if (cStr[1] != '0'){return offset + 1;}
+        if (cStr[2] != '0'){return offset + 2;}
+        if (cStr[3] != '0'){return offset + 3;}
+        if (cStr[4] != '0'){return offset + 4;}
+        if (cStr[5] != '0'){return offset + 5;}
+        if (cStr[6] != '0'){return offset + 6;}
+        if (cStr[7] != '0'){return offset + 7;}
+        return offset;
+    }
+    else if constexpr (std::same_as<T, int64_t> || std::same_as<T, double>)
+    {
+        if (cStr[0]  != '0'){return offset;}
+        if (cStr[1]  != '0'){return offset + 1;}
+        if (cStr[2]  != '0'){return offset + 2;}
+        if (cStr[3]  != '0'){return offset + 3;}
+        if (cStr[4]  != '0'){return offset + 4;}
+        if (cStr[5]  != '0'){return offset + 5;}
+        if (cStr[6]  != '0'){return offset + 6;}
+        if (cStr[7]  != '0'){return offset + 7;}
+
+        if (cStr[8]  != '0'){return offset + 8;} 
+        if (cStr[9]  != '0'){return offset + 9;} 
+        if (cStr[10] != '0'){return offset + 10;}
+        if (cStr[11] != '0'){return offset + 11;}
+        if (cStr[12] != '0'){return offset + 12;}
+        if (cStr[13] != '0'){return offset + 13;}
+        if (cStr[14] != '0'){return offset + 14;}
+        if (cStr[15] != '0'){return offset + 15;}
+        return offset;
+    }
+    return offset;
+*/
+    // We pre-padded with 0 - now it's time to remove that
+    const char *cStr = s.c_str();
+    int i1 = i*stepSize;
+#ifndef NDEBUG
+    assert(i1 + stepSize <= s.size());
+#endif
     for (int iCopy = 0; iCopy < stepSize; ++iCopy)
     {
-#ifndef NDEBUG
-        if (s.at(i1 + iCopy) != '0')
+        if (cStr[i1 + iCopy] != '0')
         {
-            i1 = i1 + iCopy;
-            break;
+            return i1 + iCopy;
+            //i1 = i1 + iCopy;
+            //break;
         }
-#else
-        if (s[i1 + iCopy] != '0')
-        {
-            i1 = i1 + iCopy;
-            break;
-        }
-#endif
     }
     return i1; 
 }
@@ -353,20 +469,19 @@ std::vector<T> unpackHexRepresentation(const std::string &s,
 {
     std::vector<T> result;
     if (s.empty() || nSamples < 1){return result;}
-    result.reserve(nSamples);
-    int stepSize = 2*sizeof(T);
+    result.resize(nSamples, 0);
+    constexpr int stepSize = 2*sizeof(T); // N.B. assumed in getNonZeroStartIndex
     int stringPosition{0};
     if constexpr (std::same_as<T, int>)
     {
         for (int i = 0; i < nSamples; ++i)
         {
             auto i2 = (i + 1)*stepSize;
-            auto i1 = ::getNonZeroStartIndex(s, i, stepSize);
-            std::istringstream buffer(
-                std::string {s.data() + i1, s.data() + i2});
+            auto i1 = ::getNonZeroStartIndex<int> (s, i);
+            std::istringstream buffer(s.substr(i1, i2 - i1));
             uint32_t value;
             buffer >> std::hex >> value;
-            result.push_back(static_cast<int> (value));
+            result[i] = static_cast<int> (value);
         }
     }
     else if constexpr (std::same_as<T, int64_t>)
@@ -374,12 +489,11 @@ std::vector<T> unpackHexRepresentation(const std::string &s,
         for (int i = 0; i < nSamples; ++i)
         {
             auto i2 = (i + 1)*stepSize;
-            auto i1 = ::getNonZeroStartIndex(s, i, stepSize);
-            std::istringstream buffer(
-                std::string {s.data() + i1, s.data() + i2});
+            auto i1 = ::getNonZeroStartIndex<int64_t> (s, i);
+            std::istringstream buffer(s.substr(i1, i2 - i1));
             uint64_t value;
             buffer >> std::hex >> value;
-            result.push_back(static_cast<int64_t> (value));
+            result[i] = static_cast<int64_t> (value);
         }
     }
     else if constexpr (std::same_as<T, float>)
@@ -387,12 +501,11 @@ std::vector<T> unpackHexRepresentation(const std::string &s,
         for (int i = 0; i < nSamples; ++i)
         {
             auto i2 = (i + 1)*stepSize;
-            auto i1 = ::getNonZeroStartIndex(s, i, stepSize);
-            std::istringstream buffer(
-                std::string {s.data() + i1, s.data() + i2});
+            auto i1 = ::getNonZeroStartIndex<float> (s, i);
+            std::istringstream buffer(s.substr(i1, i2 - i1));
             uint32_t value;
             buffer >> std::hex >> value;
-            result.push_back(std::bit_cast<float> (value));
+            result[i] = std::bit_cast<float> (value);
         }
     }
     else if constexpr (std::same_as<T, double>)
@@ -400,12 +513,11 @@ std::vector<T> unpackHexRepresentation(const std::string &s,
         for (int i = 0; i < nSamples; ++i)
         {
             auto i2 = (i + 1)*stepSize;
-            auto i1 = ::getNonZeroStartIndex(s, i, stepSize);
-            std::istringstream buffer(
-                std::string {s.data() + i1, s.data() + i2});
+            auto i1 = ::getNonZeroStartIndex<double> (s, i);
+            std::istringstream buffer(s.substr(i1, i2 - i1));
             uint64_t value;
             buffer >> std::hex >> value;
-            result.push_back(std::bit_cast<double> (value));
+            result[i] = std::bit_cast<double> (value);
         }
     }
     else
