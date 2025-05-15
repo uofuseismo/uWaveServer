@@ -189,6 +189,8 @@ public:
         }
 #ifndef NDEBUG
         assert(false);
+#else
+        throw std::runtime_error("Unhandled data type in packet impl size");
 #endif
     }
     [[nodiscard]] bool isEmpty() const
@@ -215,6 +217,8 @@ public:
         }
 #ifndef NDEBUG
         assert(false);
+#else
+        throw std::runtime_error("Unhandled data type in packet impl isEmpty");
 #endif
     }
     void clearData()
@@ -638,6 +642,13 @@ void Packet::trim(const std::chrono::microseconds &startTime,
         if (iStart > 0){setStartTime(startTime);}
     }
 }
+
+/// Swap times
+void UWaveServer::swap(UWaveServer::Packet &lhs, UWaveServer::Packet &rhs)
+{
+    std::swap(lhs.pImpl, rhs.pImpl);
+}
+
 
 ///--------------------------------------------------------------------------///
 ///                             Template Instantiation                       ///

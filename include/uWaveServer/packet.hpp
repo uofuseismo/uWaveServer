@@ -117,9 +117,14 @@ public:
     Packet& operator=(const Packet &packet);
     /// @brief Move assignent.
     Packet& operator=(Packet &&packet) noexcept;
+    friend void swap(Packet &lhs, Packet &rhs);
 private:
     class PacketImpl;
     std::unique_ptr<PacketImpl> pImpl;
 };
+/// @brief Swaps two time classes, lhs and rhs.
+/// @param[in,out] lhs  On exit this will contain the information in rhs.
+/// @param[in,out] rhs  On exit this will contain the information in lhs.
+void swap(Packet &lhs, Packet &rhs);
 }
 #endif
