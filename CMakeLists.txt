@@ -21,6 +21,7 @@ find_package(nlohmann_json 3.8.0 REQUIRED)
 find_package(Boost COMPONENTS program_options date_time url REQUIRED)
 find_package(MiniSEED REQUIRED)
 find_package(SEEDLink REQUIRED)
+find_package(Catch2 3)
 find_package(Earthworm)
 if (${ENABLE_SSL})
    find_package(OpenSSL COMPONENTS SSL Crypto REQUIRED)
@@ -111,15 +112,35 @@ target_include_directories(uwsWebServer
 target_link_libraries(uwsWebServer
                       PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url)# SOCI::Core SOCI::PostgreSQL)
 
-add_executable(binaryTest test/binary.cpp)
-set_target_properties(binaryTest PROPERTIES
-                      CXX_STANDARD 20
-                      CXX_STANDARD_REQUIRED YES
-                      CXX_EXTENSIONS NO)
-target_include_directories(binaryTest
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
-target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
+if (${Catch2_FOUND})
+   message("Found catch")
+   add_executable(unitTests
+                  testing/pack.cpp
+                  testing/packet.cpp)
+   set_target_properties(unitTests PROPERTIES
+                         CXX_STANDARD 20
+                         CXX_STANDARD_REQUIRED YES
+                         CXX_EXTENSIONS NO)
+   target_link_libraries(unitTests PRIVATE uLocator
+                         Catch2::Catch2 Catch2::Catch2WithMain
+                         uWaveServer)
+   target_include_directories(unitTests
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
+                              PRIVATE $<BUILD_INTERFACE:${UMPS_INCLUDE_DIR}>)
+   add_test(NAME unitTests 
+            COMMAND unitTests)
+endif()
+#add_executable(binaryTest test/binary.cpp)
+#set_target_properties(binaryTest PROPERTIES
+#                      CXX_STANDARD 20
+#                      CXX_STANDARD_REQUIRED YES
+#                      CXX_EXTENSIONS NO)
+#target_include_directories(binaryTest
+#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
+#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
+#target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
 
 ##########################################################################################
 #                                     CPACK Packaging                                    #

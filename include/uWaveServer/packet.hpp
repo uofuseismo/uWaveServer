@@ -96,6 +96,8 @@ public:
     template<typename U> void setData(std::vector<U> &&data);
     /// @brief Sets the data from a packet.
     template<typename U> void setData(const int nSamples, const U *data);
+    /// @brief Sets the data from a packet.
+    template<typename U> void setData(const std::vector<U> &data);
     /// @result A raw pointer to the underlying data.
     [[nodiscard]] const void *data() const noexcept;
 

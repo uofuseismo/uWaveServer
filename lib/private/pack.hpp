@@ -3,6 +3,7 @@
 #include <bit>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 #ifndef NDEBUG
 #include <cassert>
 #endif
