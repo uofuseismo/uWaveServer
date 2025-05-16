@@ -27,6 +27,7 @@ using namespace UWaveServer::Database;
 namespace
 {
 
+/*
 std::string pack(const int n, const int *values)
 {
     std::string result(4*n, '\0');
@@ -66,6 +67,7 @@ std::string pack(const int n, const int64_t *values)
     }
     return result;
 }
+*/
 
 UWaveServer::Packet
     queryRowToPacket(const double queryStartTime,
@@ -79,7 +81,8 @@ UWaveServer::Packet
                      const int nSamples,
                      const int8_t endiannes,
                      const char dataType,
-                     std::string &hexStringData)
+                     std::string &hexStringData,
+                     const bool swapBytes)
 {
     UWaveServer::Packet packet;
     packet.setNetwork(network);
@@ -96,63 +99,23 @@ UWaveServer::Packet
         } 
         if (dataType == 'i')
         {
-            auto data = ::unpackHexRepresentation<int> (hexStringData, nSamples);
-            if (!data.empty())
-            {
-                if constexpr (std::endian::native == std::endian::little)
-                {
-                    packet.setData(std::move(data));
-                }
-                else
-                {
-                    packet.setData(::reverseBytes(data));
-                }
-            }
+            auto data = ::unpackHexRepresentation<int> (hexStringData, nSamples, swapBytes);
+            packet.setData(std::move(data));
         }
         else if (dataType == 'f')
         {
-            auto data = ::unpackHexRepresentation<float> (hexStringData, nSamples);
-            if (!data.empty())
-            {
-                if constexpr (std::endian::native == std::endian::little)
-                {
-                    packet.setData(std::move(data));
-                }
-                else
-                {
-                    packet.setData(::reverseBytes(data));
-                }
-            }
+            auto data = ::unpackHexRepresentation<float> (hexStringData, nSamples, swapBytes);
+            packet.setData(std::move(data));
         }
         else if (dataType == 'l')
         {
-            auto data = ::unpackHexRepresentation<int64_t> (hexStringData, nSamples);
-            if (!data.empty())
-            {
-                if constexpr (std::endian::native == std::endian::little)
-                {
-                    packet.setData(std::move(data));
-                }
-                else
-                {
-                    packet.setData(::reverseBytes(data));
-                }
-            }
+            auto data = ::unpackHexRepresentation<int64_t> (hexStringData, nSamples, swapBytes);
+            packet.setData(std::move(data));
         }
         else if (dataType == 'd')
         {
-            auto data = ::unpackHexRepresentation<double> (hexStringData, nSamples);
-            if (!data.empty())
-            {
-                if constexpr (std::endian::native == std::endian::little)
-                {
-                    packet.setData(std::move(data));
-                }
-                else
-                {
-                    packet.setData(::reverseBytes(data));
-                }
-            }
+            auto data = ::unpackHexRepresentation<double> (hexStringData, nSamples, swapBytes);
+            packet.setData(std::move(data));
         }
         else
         {
@@ -236,7 +199,8 @@ std::vector<UWaveServer::Packet>
                        const std::vector<int> &packetSizes,
                        const std::vector<int8_t> &endians,
                        const std::vector<char> &dataTypes,
-                       std::vector<std::string> &hexStringDatas)
+                       std::vector<std::string> &hexStringDatas,
+                       const bool swapBytes)
 {
     std::vector<UWaveServer::Packet> result;
     int nPackets = static_cast<int> (packetStartTimes.size());
@@ -265,7 +229,8 @@ std::vector<UWaveServer::Packet>
                                              packetSizes[i],
                                              endians[i], 
                                              dataTypes[i],
-                                             hexStringDatas[i]);
+                                             hexStringDatas[i],
+                                             swapBytes);
             if (!packet.empty()){result.push_back(std::move(packet));}
         }
         catch (const std::exception &e)
@@ -668,7 +633,8 @@ public:
                                       allPacketLengths,
                                       allEndiannesses,
                                       allDataSignifiers,
-                                      allPacketByteArrays);
+                                      allPacketByteArrays,
+                                      mSwapBytes);
   #else
         result = ::queryRowsToPackets(startTime,
                                       endTime,
@@ -821,25 +787,29 @@ public:
         if (dataType == UWaveServer::Packet::DataType::Integer32)
         {
             auto dataPtr = static_cast<const int *> (packet.data());
-            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            hexEncodedData
+                 = ::hexRepresentation(dataPtr, nSamples, usePrefix, mSwapBytes);
             dataTypeSignifier = 'i';
         }
         else if (dataType == UWaveServer::Packet::DataType::Integer64)
         {
             auto dataPtr = static_cast<const int64_t *> (packet.data());
-            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            hexEncodedData
+                 = ::hexRepresentation(dataPtr, nSamples, usePrefix, mSwapBytes);
             dataTypeSignifier = 'l';
         }
         else if (dataType == UWaveServer::Packet::DataType::Double)
         {
             auto dataPtr = static_cast<const double *> (packet.data());
-            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            hexEncodedData
+                 = ::hexRepresentation(dataPtr, nSamples, usePrefix, mSwapBytes);
             dataTypeSignifier = 'd';
         }
         else if (dataType == UWaveServer::Packet::DataType::Float)
         {
             auto dataPtr = static_cast<const float *> (packet.data());
-            hexEncodedData = ::hexRepresentation(dataPtr, nSamples, usePrefix);
+            hexEncodedData
+                = ::hexRepresentation(dataPtr, nSamples, usePrefix, mSwapBytes);
             dataTypeSignifier = 'f';
         }
 #else
@@ -884,7 +854,7 @@ public:
         {
         soci::transaction tr(*session);
 #ifdef USE_BYTEA
-        int8_t littleEndian = (std::endian::native == std::endian::little) ? 1 : 0;
+        constexpr int8_t littleEndian{1}; // Always write as little endian
         soci::statement statement = (session->prepare <<
             "INSERT INTO packet(sensor_identifier, start_time, end_time, identifier, sampling_rate, n_samples, datatype, little_endian, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :packetNumber, :samplingRate, :nSamples, :dataType, :littleEndian, DECODE(:data, 'hex')) ON CONFLICT DO NOTHING",
             soci::use(sensorIdentifier),
@@ -994,13 +964,23 @@ public:
             spdlog::warn("Failed to get retention duration.  Failed with"
                        + std::string {e.what()});
         }
+#ifdef USE_BYTEA
+        if (mSwapBytes)
+        {
+            spdlog::info("Processor appears to be big endian; will swap bytes");
+        }
+        else
+        {
+            spdlog::info("Processor appears to be little endian; will not swap bytes");
+        }
+#endif
         initializeSensors();
     }
     mutable std::mutex mMutex;
     mutable Connection::PostgreSQL mConnection;
     mutable std::map<std::string, int> mSensorIdentifiers;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
-    int8_t mLittleEndian{std::endian::native == std::endian::little ? 1 : 0};
+    bool mSwapBytes{std::endian::native == std::endian::little ? false : true};
 };
 
 /// Constructor

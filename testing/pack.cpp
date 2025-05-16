@@ -11,12 +11,14 @@
 
 TEST_CASE("uWaveServer::pack::hex", "[int]")
 {
+    constexpr bool usePrefix{false};
+    constexpr bool swapBytes{false};
     int iMin{std::numeric_limits<int>::lowest()};
     int iMax{std::numeric_limits<int>::max()};
     std::vector<int> data{305419896, iMin, -10, -5, 0, 5, 10, iMax};
     auto nSamples = static_cast<int> (data.size());
-    auto encodedHex = ::hexRepresentation(data);
-    auto decodedHex = ::unpackHexRepresentation<int>(encodedHex, nSamples);
+    auto encodedHex = ::hexRepresentation(data, usePrefix, swapBytes);
+    auto decodedHex = ::unpackHexRepresentation<int>(encodedHex, nSamples, swapBytes);
     REQUIRE(nSamples == static_cast<int> (decodedHex.size())); 
     for (int i = 0; i < nSamples; ++i)
     {
@@ -27,12 +29,14 @@ TEST_CASE("uWaveServer::pack::hex", "[int]")
 
 TEST_CASE("uWaveServer::pack::hex", "[float]")
 {
+    constexpr bool usePrefix{false};
+    constexpr bool swapBytes{false};
     float fMin{std::numeric_limits<float>::lowest()};
     float fMax{std::numeric_limits<float>::max()};
     std::vector<float> data{fMin, -10, -5.07, -0.74, 0, 4, 5, 10.2, fMax};
     auto nSamples = static_cast<float> (data.size());
-    auto encodedHex = ::hexRepresentation(data);
-    auto decodedHex = ::unpackHexRepresentation<float> (encodedHex, nSamples);
+    auto encodedHex = ::hexRepresentation(data, usePrefix, swapBytes);
+    auto decodedHex = ::unpackHexRepresentation<float> (encodedHex, nSamples, swapBytes);
     REQUIRE(nSamples == static_cast<int> (decodedHex.size()));
     for (int i = 0; i < nSamples; ++i)
     {   
@@ -43,12 +47,14 @@ TEST_CASE("uWaveServer::pack::hex", "[float]")
 
 TEST_CASE("uWaveServer::pack::hex", "[int64_t]")
 {
+    constexpr bool usePrefix{false};
+    constexpr bool swapBytes{false};
     int64_t iMin{std::numeric_limits<int64_t>::lowest()};
     int64_t iMax{std::numeric_limits<int64_t>::max()};
     std::vector<int64_t> data{305419896, iMin, -10, -5, 0, 5, 10, 99, iMax};
     auto nSamples = static_cast<int> (data.size());
-    auto encodedHex = ::hexRepresentation(data);
-    auto decodedHex = ::unpackHexRepresentation<int64_t> (encodedHex, nSamples);
+    auto encodedHex = ::hexRepresentation(data, usePrefix, swapBytes);
+    auto decodedHex = ::unpackHexRepresentation<int64_t> (encodedHex, nSamples, swapBytes);
     REQUIRE(nSamples == static_cast<int> (decodedHex.size()));
     for (int i = 0; i < nSamples; ++i)
     {
@@ -59,13 +65,15 @@ TEST_CASE("uWaveServer::pack::hex", "[int64_t]")
 
 TEST_CASE("uWaveServer::pack::hex", "[double]")
 {
+    constexpr bool usePrefix{false};
+    constexpr bool swapBytes{false};
     double dMin{std::numeric_limits<double>::lowest()};
     double dMax{std::numeric_limits<double>::max()};
     std::vector<double> data{dMin, -11.912, -5.07, -0.74, 0, 4, 5, 10.2, 1332.998933234, dMax};
     auto nSamples = static_cast<int> (data.size());
-    auto encodedHex = ::hexRepresentation(data);
+    auto encodedHex = ::hexRepresentation(data, usePrefix, swapBytes);
     //std::cout << encodedHex<< std::endl;
-    auto decodedHex = ::unpackHexRepresentation<double> (encodedHex, nSamples);
+    auto decodedHex = ::unpackHexRepresentation<double> (encodedHex, nSamples, swapBytes);
     REQUIRE(nSamples == static_cast<int> (decodedHex.size()));
     for (int i = 0; i < nSamples; ++i)
     {

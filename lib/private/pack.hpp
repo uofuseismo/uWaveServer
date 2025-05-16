@@ -10,6 +10,7 @@
 namespace
 {
 
+/*
 void packi4(const int i, char c[])
 {
     union
@@ -277,6 +278,7 @@ std::vector<T> unpack(const int nValues, const char *packedValues, const bool sw
     }
     return result;
 }
+*/
 
 /// @brief Performs a byte swap on a value.
 /// @todo In the future C++ may add primitives for this.  Currently,
@@ -305,18 +307,29 @@ std::vector<T> reverseBytes(const std::vector<T> &input)
     return result;
 }
 
+template<typename T>
+void reverseBytes(std::vector<T> &inputOutput)
+{
+    for (int i = 0; i < static_cast<int> (inputOutput.size()); ++i)
+    {
+        auto temp = inputOutput[i];
+        inputOutput[i] = ::reverseBytes(temp);
+    }
+}
+
 /// @brief Creates a hex representation of the input data vector
 ///        and forces the byte order as if this machine were little
 ///        endian.
 template<typename T>
 std::string hexRepresentation(const T *v, const int n,
-                              bool usePrefix = false)
+                              const bool usePrefix,
+                              const bool swapBytes)
 {
     std::stringstream stream;
     if (usePrefix){stream << "0x";}
     if constexpr (std::same_as<int, T> || std::same_as<int64_t, T>) 
     {
-        if constexpr (std::endian::native == std::endian::little)
+        if (!swapBytes)
         {
             for (int i = 0; i < n; ++i)
             {
@@ -339,7 +352,7 @@ std::string hexRepresentation(const T *v, const int n,
     }
     else if constexpr (std::same_as<float, T>)
     {
-        if constexpr (std::endian::native == std::endian::little)
+        if (!swapBytes)
         {
             for (int i = 0; i < n; ++i)
             {
@@ -364,7 +377,7 @@ std::string hexRepresentation(const T *v, const int n,
     }
     else if constexpr (std::same_as<double, T>)
     {
-        if constexpr (std::endian::native == std::endian::little)
+        if (!swapBytes)
         {
             for (int i = 0; i < n; ++i)
             {
@@ -398,9 +411,11 @@ std::string hexRepresentation(const T *v, const int n,
 ///        the writing to happen as if this machine were little endian.
 template<typename T>
 std::string hexRepresentation(const std::vector<T> &v,
-                              const bool usePrefix = false)
+                              const bool usePrefix,
+                              const bool swapBytes)
 {
-    return ::hexRepresentation(v.data(), static_cast<int> (v.size()), usePrefix); 
+    return ::hexRepresentation(v.data(), static_cast<int> (v.size()),
+                               usePrefix, swapBytes); 
 }
 
 template<typename T>
@@ -466,7 +481,8 @@ template<typename T>
 
 template<typename T>
 std::vector<T> unpackHexRepresentation(const std::string &s, 
-                                       const int nSamples)
+                                       const int nSamples,
+                                       const bool swapBytes)
 {
     std::vector<T> result;
     if (s.empty() || nSamples < 1){return result;}
@@ -525,6 +541,7 @@ std::vector<T> unpackHexRepresentation(const std::string &s,
     {
         throw std::runtime_error("Unhandled data type");
     }
+    if (swapBytes){::reverseBytes(result);}
     return result;
 }
 
