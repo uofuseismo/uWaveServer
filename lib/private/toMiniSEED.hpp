@@ -75,7 +75,10 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     int maxEncodingInteger{-1};
     for (const auto &packet : packets)
     {
-        if (!packet.empty())
+        if (!packet.empty() &&
+            packet.haveNetwork() &&
+            packet.haveStation() &&
+            packet.haveChannel())
         {
             auto encodingInteger = ::encodingInteger(packet.getDataType());
             maxEncodingInteger = std::max(encodingInteger, maxEncodingInteger);
@@ -100,10 +103,34 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     }
     for (const auto &packet : packets)
     { 
-        if (!packet.empty())
+        if (!packet.empty() &&
+            packet.haveNetwork() &&
+            packet.haveStation() &&
+            packet.haveChannel())
         {
             if (msRecord)
             {
+                // Pack the sid
+                auto network = packet.getNetwork();
+                auto station = packet.getStation();
+                auto channel = packet.getChannel();
+                std::string locationCode;
+                if (packet.haveLocationCode())
+                {
+                    locationCode = packet.getLocationCode();
+                }
+
+                auto sidLength
+                    = ms_nslc2sid(msRecord->sid, LM_SIDLEN, 0,
+                                  const_cast<char *> (network.c_str()),
+                                  const_cast<char *>(station.c_str()),
+                                  const_cast<char *>(locationCode.c_str()),
+                                  const_cast<char *>(channel.c_str()));
+                if (sidLength < 1)
+                {
+                    spdlog::error("Failed to pack SID");
+                    continue;
+                }
                 msRecord->datasamples = nullptr;
                 // Pack the data
                 std::vector<double> i64Data;
@@ -112,6 +139,9 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                 // Microseconds to nanoseconds
                 msRecord->starttime
                     = static_cast<int64_t> (packet.getStartTime().count()*1000);
+                //char timestr[30];
+                //ms_nstime2timestr(msRecord->starttime, timestr, ISOMONTHDAY, NANO_MICRO_NONE);
+                //std::cout << msRecord->starttime << " " << timestr << std::endl;
                 msRecord->samprate = packet.getSamplingRate();
                 msRecord->numsamples = packet.size();
                 auto encodingInteger = ::encodingInteger(packet.getDataType());
@@ -181,6 +211,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     // Write the data to a string buffer
     uint32_t writeToBufferFlags{0};
     writeToBufferFlags |= MSF_FLUSHDATA;
+    writeToBufferFlags |= MSF_MAINTAINMSTL; // Do not modify while packing
     if (!useMiniSEED3){writeToBufferFlags |= MSF_PACKVER2;}
     auto mseedEncoding = ::getMiniSEEDEncoding(maxEncodingInteger);
     char *extraHeaders{nullptr};
@@ -219,6 +250,13 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     {
         spdlog::warn("No records packed");
     }
+
+    /*
+    auto res = mstl3_writemseed(msTraceList, "./temp.mseed", 1,
+                                maxRecordLength, mseedEncoding, writeToBufferFlags, verbose); 
+    std::cout << res << std::endl;
+    */
+
     msr3_free(&msRecord);
     if (msTraceList){mstl3_free(&msTraceList, 1);}
     return outputBuffer; 
