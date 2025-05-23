@@ -100,6 +100,9 @@ public:
     template<typename U> void setData(const std::vector<U> &data);
     /// @result A raw pointer to the underlying data.
     [[nodiscard]] const void *data() const noexcept;
+    /// @result The data.
+    template<typename U>
+    [[nodiscard]] std::vector<U> getData() const;
 
     /// @brief Trims the time series so that the samples are between
     ///        start time and end time.

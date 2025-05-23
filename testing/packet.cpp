@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 #include <fstream>
 #include <numeric>
 #include <cmath>
@@ -9,6 +10,7 @@
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "uWaveServer/packet.hpp"
+#include "uWaveServer/testFuturePacket.hpp"
 #include "private/toMiniSEED.hpp"
 
 TEST_CASE("uWaveServer::Packet", "[class]")
@@ -93,6 +95,86 @@ TEST_CASE("uWaveServer::Packet", "[class]")
             REQUIRE(dPtr[i] == Catch::Approx(data.at(i)));
         }
     }   
+
+    SECTION("trim ends")
+    {
+        int nSamples{100};
+        std::vector<int> data(nSamples, 0);
+        std::iota(data.begin(), data.end(), 0);
+        packet.setData(data);
+
+        // Edge case
+        auto t1 = packet.getStartTime();
+        auto t2 = packet.getEndTime();
+        packet.trim(t1, t2);
+        REQUIRE(packet.size() == nSamples);
+        REQUIRE(packet.getStartTime() == t1);
+        REQUIRE(packet.getEndTime() == t2);
+
+        // Should be a layup (definitely outside)
+        auto t1Outside = t1 - std::chrono::microseconds {1};
+        auto t2Outside = t2 + std::chrono::microseconds {1};
+        packet.trim(t1Outside, t2Outside);
+        packet.setData(data);
+        REQUIRE(packet.size() == nSamples);
+        REQUIRE(packet.getStartTime() == t1);
+        REQUIRE(packet.getEndTime() == t2);
+
+        // Trim inside (this is harder)
+        auto iDtMuSec
+            = static_cast<int64_t>
+              (std::round(1000000/packet.getSamplingRate()));
+        std::chrono::microseconds samplingPeriodMuSec{ iDtMuSec };
+
+        // Remove first 4 samples and last 9 samples (exactly)
+        int nInStart = 5;
+        auto t1Inside = t1 + (nInStart - 1)*samplingPeriodMuSec;
+        auto nInEnd = 10;
+        auto t2Inside = t2 - (nInEnd - 1)*samplingPeriodMuSec;
+        packet.setData(data);
+        packet.trim(t1Inside, t2Inside);
+        REQUIRE(packet.getStartTime() == t1Inside);
+        REQUIRE(packet.getEndTime() == t2Inside);
+        auto nNewSamples = nSamples
+                         - std::max(0, (nInStart - 1))
+                         - std::max(0, (nInEnd - 1));
+        REQUIRE(nNewSamples == packet.size());
+        auto dataBack = packet.getData<int> ();
+        for (int i = 0; i < nNewSamples; ++i)
+        {
+            CHECK(dataBack.at(i) == data.at(nInStart - 1 + i));
+        }
+
+        // Last test is fun with rounding - about as bad as it gets.
+        // Here I'm starting a 1/4 of a sample after the exact time
+        // so my new start time should be:
+        //   t1 + (nInStart - 1)*samplingPeriodMuSec
+        // because this gets rounded down 
+        // and 1/4 of a sample before the exact end time so my
+        // so my new end time should be:
+        //   t2 - (nInEnd - 1)*samplingPeriodMuSec
+        // because this gets rounded up
+        auto quarterSample = iDtMuSec/4;
+        auto t1Half = t1 + (nInStart - 1)*samplingPeriodMuSec
+                    + std::chrono::microseconds {quarterSample};
+        auto t2Half = t2 - (nInEnd - 1)*samplingPeriodMuSec;
+                    - std::chrono::microseconds {quarterSample};
+        packet.setStartTime(t1);
+        packet.setData(data); 
+        packet.trim(t1Half, t2Half);
+        REQUIRE(packet.getStartTime() <= t1Half); // Real start time precedes desired
+        REQUIRE(t2Half <= packet.getEndTime()); // Real end time exceeds desired end time
+        // This works because I round the start time down and end time up
+        nNewSamples = nSamples
+                    - std::max(0, (nInStart - 1))
+                    - std::max(0, (nInEnd - 1));
+        REQUIRE(nNewSamples == packet.size());
+        dataBack = packet.getData<int> ();
+        for (int i = 0; i < nNewSamples; ++i)
+        {
+            CHECK(dataBack.at(i) == data.at(nInStart - 1 + i));
+        }
+    }
 }
 
 TEST_CASE("UWaveServer::Packet", "[miniSEED]")
@@ -145,6 +227,39 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
 
 TEST_CASE("UWaveServer::Packet", "[json]")
 {
-
+    
 }
 
+TEST_CASE("UWaveServer::TestFuturePacket")
+{
+    UWaveServer::Packet packet;
+    packet.setNetwork("UU");
+    packet.setStation("MOUT");
+    packet.setChannel("HHZ");
+    packet.setLocationCode("01");
+    packet.setSamplingRate(1); // 1 sps helps with subsequent test
+    packet.setData(std::vector<int> {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+    constexpr std::chrono::microseconds maxFutureTime{1000};
+    constexpr std::chrono::seconds logBadDataInterval{-1};
+    UWaveServer::TestFuturePacket futurePacketTester{maxFutureTime, logBadDataInterval};
+    SECTION("ValidData")
+    {
+        packet.setStartTime(0.0);
+        REQUIRE(futurePacketTester.allow(packet));
+    }
+    auto now = std::chrono::high_resolution_clock::now();
+    auto nowMuSeconds
+        = std::chrono::time_point_cast<std::chrono::microseconds>
+          (now).time_since_epoch();
+    SECTION("FutureData")
+    {
+        packet.setStartTime(nowMuSeconds - std::chrono::microseconds {100});
+        REQUIRE(!futurePacketTester.allow(packet));
+    }
+    SECTION("Copy")
+    {
+        auto testerCopy = futurePacketTester;
+        packet.setStartTime(nowMuSeconds - std::chrono::microseconds {100});
+        REQUIRE(!testerCopy.allow(packet));
+    }
+}

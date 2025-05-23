@@ -477,6 +477,48 @@ bool Packet::empty() const noexcept
 }
 
 /// Get data
+template<typename U>
+std::vector<U> Packet::getData() const
+{
+    std::vector<U> result;
+    if (empty()){return result;}
+    result.resize(size());
+    auto dataType = getDataType();
+    if (dataType == Packet::DataType::Integer32)
+    {
+        std::copy(pImpl->mInteger32Data.begin(),
+                  pImpl->mInteger32Data.end(),
+                  result.begin());
+    }
+    else if (dataType == Packet::DataType::Float)
+    {
+        std::copy(pImpl->mFloatData.begin(),
+                  pImpl->mFloatData.end(),
+                  result.begin());
+    }
+    else if (dataType == Packet::DataType::Double)
+    {
+        std::copy(pImpl->mDoubleData.begin(),
+                  pImpl->mDoubleData.end(),
+                  result.begin());
+    }
+    else if (dataType == Packet::DataType::Integer64)
+    {
+        std::copy(pImpl->mInteger64Data.begin(),
+                  pImpl->mInteger64Data.end(),
+                  result.begin());
+    }
+    else
+    {
+#ifndef NDEBUG
+        assert(false);
+#endif
+        constexpr U zero{0};
+        std::fill(result.begin(), result.end(), zero); 
+    }
+    return result;
+}
+
 const void* Packet::data() const noexcept 
 {
     if (empty()){return nullptr;}
@@ -588,7 +630,7 @@ void Packet::trim(const std::chrono::microseconds &startTime,
     }
     // Okay, time to go to work
     auto nSamples = static_cast<int> (size());
-    auto samplingPeriodMuS = std::round(1.e6/getSamplingRate());
+    auto samplingPeriodMuS = std::round(1000000/getSamplingRate());
     int iStart{0};
     if (pImpl->mStartTimeMicroSeconds < startTime)
     {
@@ -647,7 +689,16 @@ void Packet::trim(const std::chrono::microseconds &startTime,
         {
             pImpl->clearData();
         }
-        if (iStart > 0){setStartTime(startTime);}
+        // Make the new start relative to the current start time plus
+        // however many samples I copied
+        if (iStart > 0)
+        {
+            auto iSamplingPeriodMuS = static_cast<int64_t> (samplingPeriodMuS);
+            auto newStartTime = pImpl->mStartTimeMicroSeconds
+                              + iStart
+                               *std::chrono::microseconds {iSamplingPeriodMuS};
+            setStartTime(newStartTime);
+        }
     }
 }
 
@@ -673,3 +724,7 @@ template void Packet::setData(const std::vector<int> &data);
 template void Packet::setData(const std::vector<float> &data);
 template void Packet::setData(const std::vector<double> &data);
 template void Packet::setData(const std::vector<int64_t> &data);
+template std::vector<int> Packet::getData() const;
+template std::vector<float> Packet::getData() const;
+template std::vector<double> Packet::getData() const;
+template std::vector<int64_t> Packet::getData() const;
