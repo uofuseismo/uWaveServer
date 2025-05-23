@@ -45,9 +45,17 @@ UWaveServer::Packet
         std::fill(stationWork.begin(),  stationWork.end(), '\0');
         std::fill(channelWork.begin(),  channelWork.end(), '\0'); 
         std::fill(locationWork.begin(), locationWork.end(), '\0');
+#ifdef USE_MS_VERSION_315
+        returnValue = ms_sid2nslc_n(miniSEEDRecord->sid,
+                                    networkWork.data(), networkWork.size(),
+                                    stationWork.data(), stationWork.size(),
+                                    locationWork.data(), locationWork.size(),
+                                    channelWork.data(), channelWork.size());
+#else
         returnValue = ms_sid2nslc(miniSEEDRecord->sid,
                                   networkWork.data(), stationWork.data(),
                                   locationWork.data(), channelWork.data());
+#endif
         std::string network{networkWork.data()};
         std::string station{stationWork.data()};
         std::string channel{channelWork.data()};

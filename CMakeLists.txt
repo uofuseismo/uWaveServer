@@ -135,9 +135,6 @@ if (${Catch2_FOUND})
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
                               PRIVATE $<BUILD_INTERFACE:${UMPS_INCLUDE_DIR}>)
-   if (USE_MS_VERSION_315)
-      target_compile_definitions(unitTests PRIVATE USE_MS_VERSION_315)
-   endif()
    add_test(NAME unitTests 
             COMMAND unitTests)
 endif()

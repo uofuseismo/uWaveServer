@@ -119,7 +119,6 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                 {
                     locationCode = packet.getLocationCode();
                 }
-
                 auto sidLength
                     = ms_nslc2sid(msRecord->sid, LM_SIDLEN, 0,
                                   const_cast<char *> (network.c_str()),
