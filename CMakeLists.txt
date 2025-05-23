@@ -39,6 +39,7 @@ configure_file(${CMAKE_SOURCE_DIR}/lib/private/version.hpp.in
 set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
     lib/dataClient/streamSelector.cpp
+    lib/testFuturePacket.cpp
     lib/packet.cpp
     lib/packetSanitizer.cpp
     lib/packetSanitizerOptions.cpp
@@ -123,7 +124,7 @@ if (${Catch2_FOUND})
                          CXX_EXTENSIONS NO)
    target_link_libraries(unitTests PRIVATE uLocator
                          Catch2::Catch2 Catch2::Catch2WithMain
-                         uWaveServer)
+                         uWaveServer ${MINISEED_LIBRARY})
    target_include_directories(unitTests
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>

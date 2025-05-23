@@ -432,7 +432,7 @@ public:
         mInitialized = true;
         mHaveOptions = true;
     }
-    mutable std::mutex mMutex;
+    //mutable std::mutex mMutex;
     std::string mClientName{"uwsDataLoader"};
     std::function<void(Packet &&packet)> mAddPacketFunction;
     std::thread mSEEDLinkReaderThread;
