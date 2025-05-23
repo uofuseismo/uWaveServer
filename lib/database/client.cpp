@@ -356,6 +356,7 @@ void fill(const int nFill,
 class Client::ClientImpl
 {
 public:
+/*
     [[nodiscard]] int64_t getNextPacketNumber()
     {
         const std::string sequenceName{"packet_number_sequence"};
@@ -375,6 +376,7 @@ public:
         }
         return sequenceValue;
     }
+*/
     [[nodiscard]] int getSensorIdentifier(const std::string &network,
                                           const std::string &station,
                                           const std::string &channel,
@@ -658,7 +660,7 @@ public:
 #else // not batched query
         double packetStartTime{0};
         double samplingRate{0};
-        int64_t packetNumber{0};
+        //int64_t packetNumber{0};
         std::string stringData;
         // TODO bad query -> use the endTime
         soci::statement statement = (session->prepare <<
@@ -774,7 +776,7 @@ public:
             = reinterpret_cast<soci::session *> (mConnection.getSession()); 
         // TODO this needs tuning.  It appears multiple batches results
         // in some performance degradation so for now let's keep this big.
-        int64_t packetNumber = getNextPacketNumber(); // Throws
+        //int64_t packetNumber = getNextPacketNumber(); // Throws
         auto nSamples = static_cast<int> (packet.size()); 
         auto startTime = packet.getStartTime().count()*1.e-6;
         auto endTime = packet.getEndTime().count()*1.e-6;
@@ -856,11 +858,11 @@ public:
 #ifdef USE_BYTEA
         constexpr int8_t littleEndian{1}; // Always write as little endian
         soci::statement statement = (session->prepare <<
-            "INSERT INTO packet(sensor_identifier, start_time, end_time, identifier, sampling_rate, n_samples, datatype, little_endian, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :packetNumber, :samplingRate, :nSamples, :dataType, :littleEndian, DECODE(:data, 'hex')) ON CONFLICT DO NOTHING",
+            "INSERT INTO packet(sensor_identifier, start_time, end_time, sampling_rate, n_samples, datatype, little_endian, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :samplingRate, :nSamples, :dataType, :littleEndian, DECODE(:data, 'hex')) ON CONFLICT DO NOTHING",
             soci::use(sensorIdentifier),
             soci::use(startTime),
             soci::use(endTime),
-            soci::use(packetNumber),
+            //soci::use(packetNumber),
             soci::use(samplingRate),
             soci::use(nSamples),
             soci::use(dataTypeSignifier),
@@ -869,11 +871,11 @@ public:
 #else
         auto stringData = std::string {jsonData.dump(-1)};
         soci::statement statement = (session->prepare <<
-            "INSERT INTO packet(sensor_identifier, start_time, end_time, identifier, sampling_rate, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :samplingRate, :packetNumber, :data) ON CONFLICT DO NOTHING",
+            "INSERT INTO packet(sensor_identifier, start_time, end_time, sampling_rate, data) VALUES (:sensorIdentifier, TO_TIMESTAMP(:startTime), TO_TIMESTAMP(:endTime), :samplingRate, :data) ON CONFLICT DO NOTHING",
             soci::use(sensorIdentifier),
             soci::use(startTime),
             soci::use(endTime),
-            soci::use(packetNumber),
+            //soci::use(packetNumber),
             soci::use(samplingRate),
             //soci::use(nSamples),
             //soci::use(dataTypeSignifier),
