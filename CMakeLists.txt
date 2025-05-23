@@ -77,6 +77,11 @@ if (${SEEDLINK_FOUND})
    target_include_directories(uWaveServer PRIVATE ${SEEDLINK_INCLUDE_DIR})
    target_compile_definitions(uWaveServer PRIVATE WITH_SEEDLINK)
 endif()
+string(COMPARE GREATER_EQUAL ${MINISEED_VERSION} "3.1.5" USE_MS_VERSION_315)
+if (USE_MS_VERSION_315)
+   message("Using ms_sid2nslc_n")
+   target_compile_definitions(uWaveServer PRIVATE USE_MS_VERSION_315)
+endif()
 if (${Earthworm_FOUND})
 #   target_link_libraries(uWaveServer PRIVATE ${EARTHWORM_UTILITY_LIBRARY} ${EARTHWORM_MT_LIBRARY})
 #   target_include_directories(uWaveServer PRIVATE ${EARTHWORM_INCLUDE_DIR})
@@ -122,7 +127,7 @@ if (${Catch2_FOUND})
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO)
-   target_link_libraries(unitTests PRIVATE uLocator
+   target_link_libraries(unitTests PRIVATE
                          Catch2::Catch2 Catch2::Catch2WithMain
                          uWaveServer ${MINISEED_LIBRARY})
    target_include_directories(unitTests
@@ -130,6 +135,9 @@ if (${Catch2_FOUND})
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
                               PRIVATE $<BUILD_INTERFACE:${UMPS_INCLUDE_DIR}>)
+   if (USE_MS_VERSION_315)
+      target_compile_definitions(unitTests PRIVATE USE_MS_VERSION_315)
+   endif()
    add_test(NAME unitTests 
             COMMAND unitTests)
 endif()
