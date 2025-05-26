@@ -94,3 +94,10 @@ RUN mkdir -p /home/ubuntu &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -rf soci-4.1.1
+
+RUN cd /home/ubuntu &&\
+    git clone https://github.com/uofuseismo/uWaveServer.git &&\
+    cd uWaveServer &&\
+    mkdir build &&\
+    cd build &&\
+    cmake ..
