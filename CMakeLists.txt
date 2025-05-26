@@ -64,7 +64,7 @@ if (BUILD_SHARED_LIBS)
 else()
    message("Will build static library")
    add_library(uWaveServer STATIC ${LIBRARY_SRC})
-   set_target_properties(uWaveServer
+   set_target_properties(uWaveServer PROPERTIES
                          LIBRARY_OUTPUT_NAME libuWaveServer-static.a)
 endif()
 set_target_properties(uWaveServer PROPERTIES
