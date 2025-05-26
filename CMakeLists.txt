@@ -63,7 +63,7 @@ if (BUILD_SHARED_LIBS)
    add_library(uWaveServer SHARED ${LIBRARY_SRC})
 else()
    message("Will build static library")
-   add_library(uWaveServer STATIC ${LIBRARY_SRC})
+   add_library(uWaveServer STATIC ${LIBRARY_SRC} SUFFIX -static.a)
 endif()
 set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD 20
