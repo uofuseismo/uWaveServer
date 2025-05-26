@@ -64,9 +64,8 @@ set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD_REQUIRED YES
                       CXX_EXTENSIONS NO)
 target_link_libraries(uWaveServer
-                      PUBLIC nlohmann_json::nlohmann_json
-                      PRIVATE spdlog::spdlog SOCI::Core SOCI::PostgreSQL 
-                              ${MINISEED_LIBRARY})
+                      PUBLIC nlohmann_json::nlohmann_json SOCI::Core SOCI::PostgreSQL
+                      PRIVATE spdlog::spdlog ${MINISEED_LIBRARY})
 target_include_directories(uWaveServer
                            PRIVATE ${MINISEED_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
@@ -206,9 +205,15 @@ set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
-cpack_add_component(libraries DISPLAY_NAME "Application common library")
-cpack_add_component(headers DISPLAY_NAME "libuWaveServer header files")
-cpack_add_component(applications DISPLAY_NAME "uWaveServer Applications")
+cpack_add_component(libraries
+                    DISPLAY_NAME "Application common library"
+                    DEPENDS ${MINISEED_LIBRARY})
+cpack_add_component(headers
+                    DISPLAY_NAME "libuWaveServer header files"
+                    DEPENDS libraries)
+cpack_add_component(applications
+                    DISPLAY_NAME "uWaveServer Applications"
+                    DEPENDS libraries)
 if (WIN32)
     set(CPACK_GENERATOR ZIP WIX)
 elseif (APPLE)
