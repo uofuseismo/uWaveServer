@@ -1,0 +1,35 @@
+# Time cmake module
+#
+# The following import targets are created
+#
+# ::
+#
+#   libuWaveServer-static
+#   libuWaveServer
+#
+# This module sets the following variables in your project::
+#
+#   uWaveServer_FOUND - true if uWaveServer library was found on the system
+#   uWaveServer_INCLUDE_DIR - the directory containing uWaveServer headers
+#   uWaveServer_LIBRARY - 
+#   uWaveServer_STATIC_LIBRARY
+
+@PACKAGE_INIT@
+
+if(NOT TARGET uWaveServer AND NOT TARGET uWaveServer-static)
+  include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+
+  if (TARGET uWaveServer)
+    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer INTERFACE_INCLUDE_DIRECTORIES)
+  else ()
+    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer-static INTERFACE_INCLUDE_DIRECTORIES)
+  endif()
+
+  if (TARGET uWaveServer)
+    get_target_property(@PROJECT_NAME@_LIBRARY uWaveServer LOCATION)
+  endif()
+  if (TARGET uWaveServer-static)
+    get_target_property(@PROJECT_NAME@_STATIC_LIBRARY uWaveServer-static LOCATION)
+  endif()
+endif()
+
