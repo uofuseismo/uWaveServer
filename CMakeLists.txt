@@ -72,7 +72,7 @@ else()
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO
-                         LIBRARY_OUTPUT_NAME libuWaveServer-static.a)
+                         OUTPUT_NAME libuWaveServer-static.a)
 endif()
 target_link_libraries(uWaveServer
                       PUBLIC nlohmann_json::nlohmann_json SOCI::Core SOCI::PostgreSQL
