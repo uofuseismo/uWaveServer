@@ -71,7 +71,8 @@ target_include_directories(uWaveServer
                            PRIVATE ${MINISEED_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-                           PUBLIC $<INSTALL_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>)
+                           PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>
+                           PUBLIC $<INSTALL_INTERFACE:include>)
 if (${SEEDLINK_FOUND})
    target_link_libraries(uWaveServer PRIVATE ${SEEDLINK_LIBRARY})
    target_include_directories(uWaveServer PRIVATE ${SEEDLINK_INCLUDE_DIR})
@@ -147,6 +148,39 @@ endif()
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 #target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
+
+##########################################################################################
+#                                      Installation                                      #
+##########################################################################################
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    cmake/${PROJECT_NAME}Config.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+    VERSION "${version}"
+    COMPATIBILITY AnyNewerVersion
+)
+install(TARGETS uWaveServer uwsWebServer uwsDataLoader
+        EXPORT ${PROJECT_NAME}-targets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        COMPONENT Runtime)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uLocator
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+export(EXPORT ${PROJECT_NAME}-targets
+       FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake")
+install(EXPORT ${PROJECT_NAME}-targets
+        FILE ${PROJECT_NAME}Targets.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+
 
 ##########################################################################################
 #                                     CPACK Packaging                                    #
