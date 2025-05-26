@@ -59,8 +59,10 @@ endif()
 #endif()
 
 if (BUILD_SHARED_LIBS)
+   message("Will build shared library")
    add_library(uWaveServer SHARED ${LIBRARY_SRC})
 else()
+   message("Will build static library")
    add_library(uWaveServer STATIC ${LIBRARY_SRC})
 endif()
 set_target_properties(uWaveServer PROPERTIES
