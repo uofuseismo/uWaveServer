@@ -61,16 +61,19 @@ endif()
 if (BUILD_SHARED_LIBS)
    message("Will build shared library")
    add_library(uWaveServer SHARED ${LIBRARY_SRC})
+   set_target_properties(uWaveServer PROPERTIES
+                         CXX_STANDARD 20
+                         CXX_STANDARD_REQUIRED YES 
+                         CXX_EXTENSIONS NO) 
 else()
    message("Will build static library")
    add_library(uWaveServer STATIC ${LIBRARY_SRC})
    set_target_properties(uWaveServer PROPERTIES
+                         CXX_STANDARD 20
+                         CXX_STANDARD_REQUIRED YES
+                         CXX_EXTENSIONS NO
                          LIBRARY_OUTPUT_NAME libuWaveServer-static.a)
 endif()
-set_target_properties(uWaveServer PROPERTIES
-                      CXX_STANDARD 20
-                      CXX_STANDARD_REQUIRED YES
-                      CXX_EXTENSIONS NO)
 target_link_libraries(uWaveServer
                       PUBLIC nlohmann_json::nlohmann_json SOCI::Core SOCI::PostgreSQL
                       PRIVATE spdlog::spdlog ${MINISEED_LIBRARY})
