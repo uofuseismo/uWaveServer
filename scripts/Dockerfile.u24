@@ -4,6 +4,8 @@ FROM ubuntu:24.04
 MAINTAINER Ben Baker <ben.baker@utah.edu>
 USER root
 ENV PATH="$PATH:/usr/local/bin"
+ENV BOOST_ROOT="/usr/local"
+ENV CPLUS_INCLUDE_PATH="/usr/local/include:${CPLUS_INCLUDE_PATH}"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib"
 
 RUN export DEBIAN_FRONTEND=noninteractive &&\
@@ -17,18 +19,19 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get install -y autoconf &&\
     apt-get install -y make &&\
     apt-get install -y cmake &&\
-    apt-get install -y libboost-all-dev &&\
+    apt-get install -y libicu-dev &&\
     apt-get install -y libssl-dev &&\
     apt-get install -y openssl &&\
     apt-get install -y libcurl4-openssl-dev &&\
     apt-get install -y libpq-dev
+#apt-get install -y libboost-all-dev &&\
 
 # soci needs libsqlite3
 RUN mkdir -p /home/ubuntu &&\
     mkdir -p /usr/local/include &&\
     mkdir -p /usr/local/lib &&\
     cd /home/ubuntu &&\
-    wget https://zlib.net/zlib-1.3.1.tar.gz &&\
+    wget -q https://zlib.net/zlib-1.3.1.tar.gz &&\
     tar -xf zlib-1.3.1.tar.gz &&\
     rm zlib-1.3.1.tar.gz &&\
     cd zlib-1.3.1  &&\
@@ -38,7 +41,7 @@ RUN mkdir -p /home/ubuntu &&\
     cd /home/ubuntu &&\
     rm -r zlib-1.3.1 &&\
     cd /home/ubuntu &&\
-    wget https://sqlite.org/2025/sqlite-autoconf-3490200.tar.gz &&\
+    wget -q https://sqlite.org/2025/sqlite-autoconf-3490200.tar.gz &&\
     tar -xf sqlite-autoconf-3490200.tar.gz &&\ 
     rm sqlite-autoconf-3490200.tar.gz &&\
     cd sqlite-autoconf-3490200 &&\
@@ -49,9 +52,22 @@ RUN mkdir -p /home/ubuntu &&\
     rm -r sqlite-autoconf-3490200 &&\
     cd /home/ubuntu
 
+# i don't like how ubuntu installs boost - i get everything and i really
+# don't need it
+RUN cd /home/ubuntu &&\
+    wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz &&\
+    tar -xf boost_1_88_0.tar.gz &&\
+    rm boost_1_88_0.tar.gz &&\
+    cd boost_1_88_0 &&\
+    ./bootstrap.sh &&\
+    ./b2 --with-headers --with-asio --with-beast --with-url --with-program_options --with-date_time &&\
+    ./b2 install --prefix=/usr/local --with-headers --with-asio --with-beast --with-url --with-program_options --with-date_time &&\
+    cd /home/ubuntu &&\
+    rm -rf boost_1_88_0
+
 # libmseed, libslink, catch2, spdlog, nlohmann::json, soci
-RUN cd /home/ubunty &&\
-    wget https://github.com/EarthScope/libmseed/archive/refs/tags/v3.1.5.tar.gz &&\
+RUN cd /home/ubuntu &&\
+    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.1.5.tar.gz &&\
     tar -xf v3.1.5.tar.gz &&\
     rm v3.1.5.tar.gz &&\
     cd libmseed-3.1.5 &&\
@@ -62,7 +78,7 @@ RUN cd /home/ubunty &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -r libmseed-3.1.5 &&\
-    wget https://github.com/EarthScope/libslink/archive/refs/tags/v4.1.5.tar.gz &&\
+    wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.1.5.tar.gz &&\
     tar -xf v4.1.5.tar.gz &&\ 
     rm v4.1.5.tar.gz &&\
     cd libslink-4.1.5 &&\
@@ -74,7 +90,7 @@ RUN cd /home/ubunty &&\
     cd /home/ubuntu &&\
     rm -r libslink-4.1.5 &&\
     cd /home/ubuntu &&\
-    wget https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.1.tar.gz &&\
+    wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.1.tar.gz &&\
     tar -xf v3.8.1.tar.gz &&\
     rm v3.8.1.tar.gz &&\
     cd Catch2-3.8.1/ &&\
@@ -85,7 +101,7 @@ RUN cd /home/ubunty &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -rf Catch2-3.8.1/ &&\
-    wget https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz &&\
+    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz &&\
     tar -xf v1.15.3.tar.gz &&\
     rm v1.15.3.tar.gz &&\
     cd spdlog-1.15.3 &&\
@@ -96,7 +112,7 @@ RUN cd /home/ubunty &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -rf spdlog-1.15.3 &&\
-    wget https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz &&\
+    wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz &&\
     tar -xf v3.12.0.tar.gz &&\
     rm v3.12.0.tar.gz &&\
     cd json-3.12.0/ &&\
@@ -107,7 +123,7 @@ RUN cd /home/ubunty &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -r json-3.12.0 &&\
-    wget https://github.com/SOCI/soci/archive/refs/tags/v4.1.1.tar.gz &&\
+    wget -q https://github.com/SOCI/soci/archive/refs/tags/v4.1.1.tar.gz &&\
     tar -xf v4.1.1.tar.gz &&\
     rm v4.1.1.tar.gz &&\
     cd soci-4.1.1 &&\
