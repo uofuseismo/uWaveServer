@@ -12,6 +12,7 @@
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/packetSanitizer.hpp"
 #include "uWaveServer/packetSanitizerOptions.hpp"
+#include "uWaveServer/testFuturePacket.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
@@ -218,7 +219,8 @@ public:
                 bool allow{true};
                 try
                 {
-                    if (mPacketSanitizer)
+                    allow = mTestFuturePacket.allow(packet); 
+                    if (allow && mPacketSanitizer)
                     {
                         allow = mPacketSanitizer->allow(packet);
                     }
@@ -486,6 +488,8 @@ int printEvery{0};
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    UWaveServer::TestFuturePacket mTestFuturePacket{std::chrono::microseconds {0},
+                                       std::chrono::seconds {0}};
     mutable std::mutex mStopContext;
     std::condition_variable mStopCondition;
     std::vector<std::thread> mDatabaseWriterThreads;
