@@ -4,6 +4,7 @@ enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
 option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
+option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 include(FetchContent)
 
@@ -57,8 +58,11 @@ endif()
 #   target_compile_definitions(uWaveServer WITH_EARTHWORM)
 #endif()
 
-set(BUILD_SHARED_LIBS YES)
-add_library(uWaveServer ${LIBRARY_SRC})
+if (BUILD_SHARED_LIBS)
+   add_library(uWaveServer SHARED ${LIBRARY_SRC})
+else()
+   add_library(uWaveServer STATIC ${LIBRARY_SRC})
+endif()
 set_target_properties(uWaveServer PROPERTIES
                       CXX_STANDARD 20
                       CXX_STANDARD_REQUIRED YES
