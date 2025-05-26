@@ -157,7 +157,7 @@ endif()
 #target_include_directories(binaryTest
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
-#target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
+#target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog_header_only Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
 
 ##########################################################################################
 #                                      Installation                                      #

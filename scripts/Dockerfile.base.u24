@@ -1,5 +1,6 @@
-# Purpose: Creates the base image for building the uWaveServer C++ software.
-# Usage: podman build -t uwaveserverbase:latest -f Dockerfile.u24 .
+# Purpose: Creates the base image for building the uWaveServer C++ software - 
+#          i.e., - all the prerequisites so you are ready to build.
+# Usage: podman build -t uwaveserverbase:latest -f Dockerfile.base.u24
 FROM ubuntu:24.04
 MAINTAINER Ben Baker <ben.baker@utah.edu>
 USER root
@@ -74,22 +75,18 @@ RUN cd /home/ubuntu &&\
     tar -xf v3.1.5.tar.gz &&\
     rm v3.1.5.tar.gz &&\
     cd libmseed-3.1.5 &&\
-    make static &&\
+    make static shared &&\
     make install &&\
-    make clean &&\
-    make shared &&\
-    make install &&\
+    mv libmseed.a /usr/local/lib/ &&\
     cd /home/ubuntu &&\
     rm -r libmseed-3.1.5 &&\
     wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.1.5.tar.gz &&\
     tar -xf v4.1.5.tar.gz &&\ 
     rm v4.1.5.tar.gz &&\
     cd libslink-4.1.5 &&\
-    make static &&\
+    make static shared &&\
     make install &&\
-    make clean &&\
-    make shared &&\
-    make install &&\
+    mv libslink.a /usr/local/lib/ &&\
     cd /home/ubuntu &&\
     rm -r libslink-4.1.5 &&\
     cd /home/ubuntu &&\
