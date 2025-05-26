@@ -162,15 +162,23 @@ write_basic_package_version_file(
     VERSION "${version}"
     COMPATIBILITY AnyNewerVersion
 )
-install(TARGETS uWaveServer uwsWebServer uwsDataLoader
+#install(TARGETS uWaveServer uwsWebServer uwsDataLoader
+#        EXPORT ${PROJECT_NAME}-targets
+#        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+#        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+#        COMPONENT Runtime)
+install(TARGETS uWaveServer
         EXPORT ${PROJECT_NAME}-targets
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT Runtime)
+        COMPONENT libraries)
+install(TARGETS uwsWebServer uwsDataLoader
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT applications)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        COMPONENT headers)
 export(EXPORT ${PROJECT_NAME}-targets
        FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake")
 install(EXPORT ${PROJECT_NAME}-targets
@@ -185,6 +193,7 @@ install(FILES
 ##########################################################################################
 #                                     CPACK Packaging                                    #
 ##########################################################################################
+include(CPackComponent)
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VENDOR "UUSS")
 set(CPACK_PACKAGE_CONTACT "ben.baker@utah.edu")
@@ -192,11 +201,14 @@ set(CPACK_PACKAGE_LICENSE "MIT")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A set of services for interacting with a TimeScaleDB-enabled Postgres database for storing seismic data at UUSS.")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY ${CPACK_PACKAGE_NAME})
 set(CPACK_VERBATIM_VARIABLES YES)
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
-set(CPACK_COMPONENTS_ALL executables)
+cpack_add_component(libraries DISPLAY_NAME "Application common library")
+cpack_add_component(headers DISPLAY_NAME "libuWaveServer header files")
+cpack_add_component(applications DISPLAY_NAME "uWaveServer Applications")
 if (WIN32)
     set(CPACK_GENERATOR ZIP WIX)
 elseif (APPLE)
