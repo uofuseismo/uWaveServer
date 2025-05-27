@@ -151,9 +151,9 @@ if (${Catch2_FOUND})
                          CXX_EXTENSIONS NO)
    target_link_libraries(unitTests PRIVATE
                          Catch2::Catch2 Catch2::Catch2WithMain
-                         uWaveServer ${MINISEED_LIBRARY})
+                         uWaveServer spdlog::spdlog ${MINISEED_LIBRARY})
    target_include_directories(unitTests
-                              PRIVATE $<BUILD_INTERFACE:${MINISEED_LIBRARY}>
+                              PRIVATE $<BUILD_INTERFACE:${MINISEED_INCLUDE_DIR}>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
