@@ -11,13 +11,23 @@ find_path(SEEDLINK_INCLUDE_DIR
                 /usr/local/include
           )
 # Find the library components
-find_library(SEEDLINK_LIBRARY
-             NAMES slink
-             PATHS $ENV{SEEDLINK_ROOT}/lib/
-                   $ENV{SEEDLINK_ROOT}/
-                   /usr/local/lib64
-                   /usr/local/lib
-            )
+if (BUILD_SHARED_LIBS)
+   find_library(SEEDLINK_LIBRARY
+                NAMES libslink.so
+                PATHS $ENV{SEEDLINK_ROOT}/lib/
+                      $ENV{SEEDLINK_ROOT}/
+                      /usr/local/lib64
+                      /usr/local/lib
+                )
+else()
+   find_library(SEEDLINK_LIBRARY
+                NAME libslink.a
+                PATHS $ENV{SEEDLINK_ROOT}/lib/
+                      $ENV{SEEDLINK_ROOT}/
+                      /usr/local/lib64
+                      /usr/local/lib
+                ) 
+endif()
 # Handle the QUIETLY and REQUIRED arguments and set MKL_FOUND to TRUE if
 # all listed variables are TRUE.
 include(FindPackageHandleStandardArgs)
