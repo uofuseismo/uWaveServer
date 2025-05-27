@@ -153,6 +153,7 @@ if (${Catch2_FOUND})
                          Catch2::Catch2 Catch2::Catch2WithMain
                          uWaveServer ${MINISEED_LIBRARY})
    target_include_directories(unitTests
+                              PRIVATE $<BUILD_INTERFACE:${MINISEED_LIBRARY}>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
