@@ -12,13 +12,23 @@ find_path(MINISEED_INCLUDE_DIR
                 $ENV{MINISEED_ROOT}/
                 /usr/local/include)
 # Find the library components
-find_library(MINISEED_LIBRARY
-             NAMES ${MINISEED}
-             PATHS $ENV{MINISEED}/lib/
-                   $ENV{MINISEED}/
-                   /usr/local/lib64
-                   /usr/local/lib
-            )
+if (BUILD_SHARED_LIBS)
+   find_library(MINISEED_LIBRARY
+                NAME libmseed.so
+                PATHS $ENV{MINISEED}/lib/
+                      $ENV{MINISEED}/
+                      /usr/local/lib64
+                      /usr/local/lib
+               )
+else()
+   find_library(MINISEED_LIBRARY
+                NAME libmseed.a
+                PATHS $ENV{MINISEED}/lib/
+                      $ENV{MINISEED}/
+                      /usr/local/lib64
+                      /usr/local/lib
+               )
+endif()
 file(STRINGS ${MINISEED_INCLUDE_DIR}/libmseed.h MSEED_HEADER_DATA)
 set(MINISEED_VERSION "")
 while (MSEED_HEADER_DATA)
