@@ -45,13 +45,21 @@ public:
     ///                     or Bearer.
     /// @param[in] message  The JSON request message to process.
     /// @param[in] method   The HTTP verb - e.g., GET/POST/PUT.
-    [[nodiscard]] std::string operator()(const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &requestHeader,
-                                         const std::string &message,
-                                         boost::beast::http::verb method) const;
+    [[nodiscard]]
+    std::pair<std::string, std::string> 
+        operator()(const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &requestHeader,
+                   const std::string &message,
+                   boost::beast::http::verb method) const;
     /// @result A function pointer to the callback function.
-    [[nodiscard]] std::function<std::string (const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &,
-                                             const std::string &,
-                                             const boost::beast::http::verb)> getCallbackFunction() const noexcept;
+    [[nodiscard]]
+    std::function<
+        std::pair<std::string, std::string>
+        (
+            const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &,
+            const std::string &,
+            const boost::beast::http::verb
+        )
+    > getCallbackFunction() const noexcept;
 
     Callback& operator=(const Callback &) = delete;
     Callback(const Callback &) = delete;

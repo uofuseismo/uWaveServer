@@ -31,7 +31,8 @@ public:
              const std::shared_ptr<const std::string> &documentRoot,
              const std::function
              <
-                std::string (const boost::beast::http::header
+                std::pair<std::string, std::string>
+                (const boost::beast::http::header
                              <
                                  true,
                                  boost::beast::http::basic_fields<std::allocator<char>>
@@ -50,13 +51,14 @@ private:
     boost::asio::ssl::context &mSSLContext;
     boost::asio::ip::tcp::acceptor mAcceptor;
     std::shared_ptr<const std::string> mDocumentRoot;
-    std::function<std::string (const boost::beast::http::header
-                               <
-                                  true,
-                                  boost::beast::http::basic_fields<std::allocator<char>>
-                               > &,
-                               const std::string &,
-                               const boost::beast::http::verb)> mCallback;
+    std::function<std::pair<std::string, std::string>
+                  (const boost::beast::http::header
+                   <
+                       true,
+                       boost::beast::http::basic_fields<std::allocator<char>>
+                   > &,
+                   const std::string &,
+                   const boost::beast::http::verb)> mCallback;
 };
 }
 #endif

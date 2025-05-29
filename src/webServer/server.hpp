@@ -112,13 +112,15 @@ handleRequest(
     <
        Body, boost::beast::http::basic_fields<Allocator>
     > &&request,
-    std::function<std::string (const boost::beast::http::header
-                               <
-                                   true,
-                                   boost::beast::http::basic_fields<std::allocator<char>>
-                               > &,
-                               const std::string &,
-                               const boost::beast::http::verb)> &callback)
+    std::function<
+        std::pair<std::string, std::string>
+        (const boost::beast::http::header
+         <
+             true,
+             boost::beast::http::basic_fields<std::allocator<char>>
+         > &,
+        const std::string &,
+        const boost::beast::http::verb)> &callback)
 {
 
 //std::cout << request.method() << std::endl;
@@ -351,9 +353,10 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     {
         try
         {
-            auto payload = callback(request.base(),
-                                    request.body(),
-                                    request.method());
+            auto [payload, mimeType]
+                = callback(request.base(),
+                           request.body(),
+                           request.method());
             boost::beast::http::response<boost::beast::http::string_body> result
             {
                 boost::beast::http::status::ok,
@@ -365,7 +368,8 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
             result.set(boost::beast::http::field::server,
                        BOOST_BEAST_VERSION_STRING);
             result.set(boost::beast::http::field::content_type,
-                       "application/application/json");
+                       mimeType);
+            //           "application/json");
             //result.set(boost::beast::http::field::content_type,
             //           "application/octet-stream");
             result.keep_alive(false); //request.keep_alive());
@@ -408,13 +412,14 @@ public:
         const std::shared_ptr<const std::string> &documentRoot,
         const std::function
         <
-            std::string (const boost::beast::http::header
-                         <
-                             true,
-                             boost::beast::http::basic_fields<std::allocator<char>>
-                         > &,
-                         const std::string &,
-                         const boost::beast::http::verb )
+            std::pair<std::string, std::string>
+                (const boost::beast::http::header
+                 <
+                    true,
+                    boost::beast::http::basic_fields<std::allocator<char>>
+                 > &,
+                 const std::string &,
+                 const boost::beast::http::verb )
         > &callback) :
         mDocumentRoot(documentRoot),
         mBuffer(std::move(buffer)),
@@ -532,13 +537,14 @@ private:
     <    
      boost::beast::http::request_parser<boost::beast::http::string_body>
     > mRequestParser;
-    std::function<std::string (const boost::beast::http::header
-                               <
-                                  true,
-                                  boost::beast::http::basic_fields<std::allocator<char>>
-                               > &,
-                               const std::string &,
-                               const boost::beast::http::verb)> mCallback;
+    std::function<std::pair<std::string, std::string>
+                  (const boost::beast::http::header
+                   <
+                      true,
+                      boost::beast::http::basic_fields<std::allocator<char>>
+                   > &,
+                   const std::string &,
+                   const boost::beast::http::verb)> mCallback;
 };
 
 // Handles a plain HTTP connection
@@ -553,13 +559,14 @@ public:
         const std::shared_ptr<const std::string> &documentRoot,
         const std::function
         <
-            std::string (const boost::beast::http::header
-                         <
-                             true,
-                             boost::beast::http::basic_fields<std::allocator<char>>
-                         > &,
-                         const std::string &,
-                         const boost::beast::http::verb)
+            std::pair<std::string, std::string>
+            (const boost::beast::http::header
+             <
+                true,
+                boost::beast::http::basic_fields<std::allocator<char>>
+             > &,
+             const std::string &,
+             const boost::beast::http::verb)
         > &callback) :
         ::Session<::PlainSession>(
             std::move(buffer),
@@ -615,13 +622,14 @@ public:
         const std::shared_ptr<const std::string> &documentRoot,
         const std::function
         <
-            std::string (const boost::beast::http::header
-                         <
-                             true,
-                             boost::beast::http::basic_fields<std::allocator<char>>
-                         > &,
-                         const std::string &,
-                         const boost::beast::http::verb)
+            std::pair<std::string, std::string>
+            (const boost::beast::http::header
+             <
+                 true,
+                 boost::beast::http::basic_fields<std::allocator<char>>
+             > &,
+             const std::string &,
+             const boost::beast::http::verb)
         > &callback) :
         ::Session<::SSLSession>(std::move(buffer),
                                 documentRoot,
@@ -721,13 +729,14 @@ public:
         const std::shared_ptr<const std::string> &documentRoot,
         const std::function
         <
-            std::string (const boost::beast::http::header
-                         <
-                            true,
-                            boost::beast::http::basic_fields<std::allocator<char>>
-                         > &,
-                         const std::string &,
-                         const boost::beast::http::verb request)
+            std::pair<std::string, std::string>
+            (const boost::beast::http::header
+             <
+                 true,
+                 boost::beast::http::basic_fields<std::allocator<char>>
+             > &,
+             const std::string &,
+             const boost::beast::http::verb request)
         > &callback) :
         mStream(std::move(socket)),
         mSSLContext(sslContext),
@@ -790,13 +799,14 @@ private:
     boost::asio::ssl::context& mSSLContext;
     std::shared_ptr<const std::string> mDocumentRoot;
     boost::beast::flat_buffer mBuffer;
-    std::function<std::string (const boost::beast::http::header
-                               <
-                                   true,
-                                   boost::beast::http::basic_fields<std::allocator<char>>
-                               > &,
-                               const std::string &,
-                               const boost::beast::http::verb)> mCallback;
+    std::function<std::pair<std::string, std::string>
+                  (const boost::beast::http::header
+                   <
+                       true,
+                       boost::beast::http::basic_fields<std::allocator<char>>
+                   > &,
+                   const std::string &,
+                   const boost::beast::http::verb)> mCallback;
 };
 
 }

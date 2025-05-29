@@ -4,7 +4,7 @@
 #include <mutex>
 #include <set>
 #include <spdlog/spdlog.h>
-#include "uWaveServer/testFuturePacket.hpp"
+#include "uWaveServer/testExpiredPacket.hpp"
 #include "uWaveServer/packet.hpp"
 #include "private/toName.hpp"
 
@@ -39,23 +39,21 @@ namespace
 }
 */
 
-class TestFuturePacket::TestFuturePacketImpl
+class TestExpiredPacket::TestExpiredPacketImpl
 {
 public:
-    TestFuturePacketImpl(const TestFuturePacketImpl &impl)
+    TestExpiredPacketImpl(const TestExpiredPacketImpl &impl)
     {
         *this = impl;
     }
-    TestFuturePacketImpl(const std::chrono::microseconds &maxFutureTime,
+    TestExpiredPacketImpl(const std::chrono::microseconds &maxExpiredTime,
                          const std::chrono::seconds &logBadDataInterval) :
-        mMaxFutureTime(maxFutureTime),
+        mMaxExpiredTime(maxExpiredTime),
         mLogBadDataInterval(logBadDataInterval)
     {
-        // This might be okay if you really want to account for telemetry
-        // lags.  But that's a dangerous game so I'll let the user know.
-        if (mMaxFutureTime.count() < 0)
+        if (mMaxExpiredTime.count() <= 0)
         {
-            spdlog::warn("Max future time is negative");
+            throw std::invalid_argument("Max expired time must be positive");
         }
         if (mLogBadDataInterval.count() >= 0)
         {
@@ -87,9 +85,9 @@ public:
         std::lock_guard<std::mutex> lockGuard(mMutex); 
         try
         {
-            if (!name.empty() && !mFutureChannels.contains(name))
+            if (!name.empty() && !mExpiredChannels.contains(name))
             {
-                mFutureChannels.insert(name);
+                mExpiredChannels.insert(name);
             }
         }
         catch (...)
@@ -98,107 +96,105 @@ public:
         }
         if (nowSeconds > mLastLogTime + mLogBadDataInterval)
         {
-            if (!mFutureChannels.empty())
+            if (!mExpiredChannels.empty())
             {
-                std::string message{"Future data detected for: "};
-                for (const auto &channel : mFutureChannels)
+                std::string message{"Expired data detected for: "};
+                for (const auto &channel : mExpiredChannels)
                 {
                     message = message + " " + channel;
                 }
                 spdlog::info(message);
-                mFutureChannels.clear();
+                mExpiredChannels.clear();
             }
             mLastLogTime = nowSeconds;
         }
         }
     }
-    TestFuturePacketImpl& operator=(const TestFuturePacketImpl &impl)
+    TestExpiredPacketImpl& operator=(const TestExpiredPacketImpl &impl)
     {
         if (&impl == this){return *this;}
         {
         std::lock_guard<std::mutex> lockGuard(impl.mMutex);
-        mFutureChannels = impl.mFutureChannels;
+        mExpiredChannels = impl.mExpiredChannels;
         mLastLogTime = impl.mLastLogTime; 
         }
-        mMaxFutureTime = impl.mMaxFutureTime;
+        mMaxExpiredTime = impl.mMaxExpiredTime;
         mLogBadDataInterval = impl.mLogBadDataInterval;
         mLogBadData = impl.mLogBadData;
         return *this;
     }
 //private:
     mutable std::mutex mMutex;
-    std::set<std::string> mFutureChannels;
-    std::chrono::microseconds mMaxFutureTime{0};
+    std::set<std::string> mExpiredChannels;
+    std::chrono::microseconds mMaxExpiredTime{std::chrono::seconds{7776000}};
     std::chrono::seconds mLastLogTime{0};
     std::chrono::seconds mLogBadDataInterval{3600};
     bool mLogBadData{true};
 };
 
 /// Constructor
-TestFuturePacket::TestFuturePacket() :
-    pImpl(std::make_unique<TestFuturePacketImpl> (std::chrono::microseconds {0},
-                                                  std::chrono::seconds {3600}))
+TestExpiredPacket::TestExpiredPacket() :
+    pImpl(std::make_unique<TestExpiredPacketImpl> (
+        std::chrono::microseconds {std::chrono::seconds{7776000}},
+        std::chrono::seconds {3600}))
 {
 }
 
 /// Constructor with options
-TestFuturePacket::TestFuturePacket(
-    const std::chrono::microseconds &maxFutureTime,
+TestExpiredPacket::TestExpiredPacket(
+    const std::chrono::microseconds &maxExpiredTime,
     const std::chrono::seconds &logBadDataInterval) :
-    pImpl(std::make_unique<TestFuturePacketImpl> (maxFutureTime,
-                                                  logBadDataInterval))
+    pImpl(std::make_unique<TestExpiredPacketImpl> (maxExpiredTime,
+                                                   logBadDataInterval))
 {
 }
 
 /// Copy constructor
-TestFuturePacket::TestFuturePacket(
-    const TestFuturePacket &testFuturePacket)
+TestExpiredPacket::TestExpiredPacket(
+    const TestExpiredPacket &testExpiredPacket)
 {
-    *this = testFuturePacket;
+    *this = testExpiredPacket;
 }
 
 /// Move constructor
-TestFuturePacket::TestFuturePacket(TestFuturePacket &&testFuturePacket) noexcept
+TestExpiredPacket::TestExpiredPacket(
+    TestExpiredPacket &&testExpiredPacket) noexcept
 {
-    *this = std::move(testFuturePacket);
+    *this = std::move(testExpiredPacket);
 }
 
 /// Copy assignment
-TestFuturePacket& 
-TestFuturePacket::operator=(const TestFuturePacket &testFuturePacket)
+TestExpiredPacket& 
+TestExpiredPacket::operator=(const TestExpiredPacket &testExpiredPacket)
 {
-    if (&testFuturePacket == this){return *this;}
-    pImpl = std::make_unique<TestFuturePacketImpl> (*testFuturePacket.pImpl);
+    if (&testExpiredPacket == this){return *this;}
+    pImpl = std::make_unique<TestExpiredPacketImpl> (*testExpiredPacket.pImpl);
     return *this;
 }
 
 /// Move assignment
-TestFuturePacket&
-TestFuturePacket::operator=(TestFuturePacket &&testFuturePacket) noexcept
+TestExpiredPacket&
+TestExpiredPacket::operator=(TestExpiredPacket &&testExpiredPacket) noexcept
 {
-    if (&testFuturePacket == this){return *this;}
-    pImpl = std::move(testFuturePacket.pImpl);
+    if (&testExpiredPacket == this){return *this;}
+    pImpl = std::move(testExpiredPacket.pImpl);
     return *this;
 }
 
 /// Destructor
-TestFuturePacket::~TestFuturePacket() = default;
+TestExpiredPacket::~TestExpiredPacket() = default;
 
 /// Does the work
-bool TestFuturePacket::allow(const Packet &packet) const
+bool TestExpiredPacket::allow(const Packet &packet) const
 {
-    auto packetEndTime = packet.getEndTime(); // Throws
-    // Computing the current time after the scraping the ring is
-    // conservative.  Basically, when the max future time is zero,
-    // this allows for a zero-latency, 1 sample packet, to be
-    // successfully passed through.
+    auto packetStartTime = packet.getStartTime(); // Throws
     auto now = std::chrono::high_resolution_clock::now();
     auto nowMuSeconds
         = std::chrono::time_point_cast<std::chrono::microseconds>
           (now).time_since_epoch();
-    auto latestTime  = nowMuSeconds + pImpl->mMaxFutureTime;
+    auto earliestTime  = nowMuSeconds - pImpl->mMaxExpiredTime;
     // Packet contains data after max allowable time?
-    bool allow = (packetEndTime <= latestTime) ? true : false;
+    bool allow = (packetStartTime >= earliestTime) ? true : false;
     // (Safely) handle logging
     try
     {

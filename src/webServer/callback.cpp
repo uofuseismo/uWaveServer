@@ -3,9 +3,12 @@
 #include <chrono>
 #include <boost/url.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/beast/http.hpp>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/database/client.hpp"
 #include "uWaveServer/packet.hpp"
+#include "private/toMiniSEED.hpp"
+#include "private/toJSON.hpp"
 #include "callback.hpp"
 
 using namespace UWaveServer::WebServer;
@@ -148,13 +151,14 @@ public:
     }
 */
 ///private:
-    std::function<std::string (const boost::beast::http::header
-                               <
-                                   true,
-                                   boost::beast::http::basic_fields<std::allocator<char>>
-                               > &,
-                               const std::string &,
-                               const boost::beast::http::verb)> mCallbackFunction;
+    std::function<std::pair<std::string, std::string>
+                  (const boost::beast::http::header
+                  <
+                      true,
+                      boost::beast::http::basic_fields<std::allocator<char>>
+                  > &,
+                  const std::string &,
+                  const boost::beast::http::verb)> mCallbackFunction;
     std::shared_ptr<UWaveServer::Database::Client> mPostgresClient{nullptr};
 /*
     std::shared_ptr<
@@ -207,7 +211,7 @@ Callback::~Callback() = default;
 
 
 /// @brief Actually processes the requests.
-std::string Callback::operator()(
+std::pair<std::string, std::string> Callback::operator()(
     const boost::beast::http::header
     <
         true,
@@ -265,8 +269,12 @@ std::cout << "---------------------------" << std::endl;
     std::string station;
     std::string channel;
     std::string locationCode;
+    std::string nodata{"404"};
     double startTime{0};
     double endTime{0};
+    int miniSEEDRecordLength{512}; // Typical for our data 
+    bool useMiniSEED3{true};
+    bool wantMiniSEED{true};
     for (auto param : parsedURL->params())
     {
         //std::cout << param.key << " " << param.value << std::endl;
@@ -303,6 +311,27 @@ std::cout << "---------------------------" << std::endl;
         {
             endTime = ::toTimeStamp(std::string {param.value});
         }
+        else if (key.find("format") == 0)
+        {
+            auto format = std::string {param.value}; 
+            boost::algorithm::to_upper(format);
+            if (format == "JSON")
+            {
+                wantMiniSEED = false;
+            }
+            else if (format == "MINISEED2")
+            {
+                useMiniSEED3 = false;
+            }
+        }
+        else if (key.find("nodata") == 0)
+        {
+            nodata = std::string {param.value};
+            if (nodata != "204" && nodata != "404")
+            {
+                throw std::invalid_argument("nodata can only be 204 or 404");
+            } 
+        }
     }
     if (network.empty()){throw std::invalid_argument("net[work] not specified");}
     if (station.empty()){throw std::invalid_argument("sta[tion] not specified");} 
@@ -315,25 +344,51 @@ std::cout << "---------------------------" << std::endl;
                                   + std::to_string(endTime));
     }
     spdlog::info("Querying: " + network + "." + station + "." + channel + "." + locationCode + " from time " + std::to_string(startTime) + " to " + std::to_string(endTime));
+    std::vector<UWaveServer::Packet> packets;
     if (pImpl->mPostgresClient)
     {
         try
         {
-            auto data = pImpl->mPostgresClient->query(network, station, channel, locationCode, startTime, endTime);
+            packets = pImpl->mPostgresClient->query(network, station, channel, locationCode, startTime, endTime);
         }
         catch (const std::exception &e)
         {
             spdlog::error(e.what());
         }
     }
+    if (!packets.empty())
+    {
+        if (wantMiniSEED)
+        {
+            std::string payload;
+            try
+            {
+                payload = ::toMiniSEED(packets,
+                                       miniSEEDRecordLength,
+                                       useMiniSEED3);
+            }
+            catch (const std::exception &e)
+            {
+                spdlog::warn("miniseed packing failed with "
+                           + std::string {e.what()});
+                throw std::runtime_error("Failed to result to mseed");
+            }
+std::cout << payload.size() << std::endl;
+            return std::pair {payload, "application/octet-stream"};
+        }
+        else
+        {
+            auto payload = ::toJSON(packets);
+            return std::pair {payload.dump(-1), "application/json"};
+        }
+    }
     // Maybe it came from curl
-    return "{\"win\" : \"yes\"}";
-
+    return std::pair{"{\"win\" : \"yes\"}", "application/json"};
 }
 
 /// @result A function pointer to the callback.
 std::function<
-    std::string (
+    std::pair<std::string, std::string> (
         const boost::beast::http::header<
             true,
             boost::beast::http::basic_fields<std::allocator<char>> 

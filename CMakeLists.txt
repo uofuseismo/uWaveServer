@@ -51,6 +51,7 @@ configure_file(${CMAKE_SOURCE_DIR}/lib/private/version.hpp.in
 set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
     lib/dataClient/streamSelector.cpp
+    lib/testDuplicatePacket.cpp
     lib/testExpiredPacket.cpp
     lib/testFuturePacket.cpp
     lib/packet.cpp
@@ -139,13 +140,16 @@ target_include_directories(uwsWebServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsWebServer
-                      PRIVATE uWaveServer spdlog::spdlog Boost::program_options Boost::url)# SOCI::Core SOCI::PostgreSQL)
+                      PRIVATE
+                      uWaveServer spdlog::spdlog Boost::program_options Boost::url
+                      nlohmann_json::nlohmann_json ${MINISEED_LIBRARY})# SOCI::Core SOCI::PostgreSQL)
 
 if (${Catch2_FOUND})
    message("Found catch")
    add_executable(unitTests
                   testing/pack.cpp
-                  testing/packet.cpp)
+                  testing/packet.cpp
+                  testing/testPacket.cpp)
    set_target_properties(unitTests PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES

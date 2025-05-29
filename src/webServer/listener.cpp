@@ -13,9 +13,10 @@ Listener::Listener(
         const std::shared_ptr<const std::string> &documentRoot,
         const std::function
         <
-            std::string (const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &,
-                         const std::string &,
-                         const boost::beast::http::verb)
+            std::pair<std::string, std::string>
+               (const boost::beast::http::header<true, boost::beast::http::basic_fields<std::allocator<char> > > &,
+                const std::string &,
+                const boost::beast::http::verb)
         > &callback) :
           mIOContext(ioContext),
           mSSLContext(sslContext),
