@@ -13,6 +13,7 @@
 #include "uWaveServer/packetSanitizer.hpp"
 #include "uWaveServer/packetSanitizerOptions.hpp"
 #include "uWaveServer/testFuturePacket.hpp"
+#include "uWaveServer/testExpiredPacket.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
@@ -217,9 +218,30 @@ public:
             if (gotPacket)
             {
                 bool allow{true};
+                // Handle future data
                 try
                 {
-                    allow = mTestFuturePacket.allow(packet); 
+                    if (allow){allow = mTestFuturePacket.allow(packet);}
+                }
+                catch (const std::exception &e)
+                {
+                    spdlog::warn("Failed to check future packet data because " 
+                               + std::string {e.what()} + "; skipping");
+                } 
+                // Handle expired data
+                try
+                {
+                    if (allow){allow = mTestExpiredPacket.allow(packet);}
+                }
+                catch (const std::exception &e)
+                {
+                    spdlog::warn("Failed to check expired packet data because "
+                               + std::string {e.what()} + "; skipping");
+                }
+                // Handle duplicate data
+                try
+                {
+                    //allow = mTestFuturePacket.allow(packet);
                     if (allow && mPacketSanitizer)
                     {
                         allow = mPacketSanitizer->allow(packet);
@@ -488,8 +510,12 @@ int printEvery{0};
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
-    UWaveServer::TestFuturePacket mTestFuturePacket{std::chrono::microseconds {0},
-                                       std::chrono::seconds {0}};
+    UWaveServer::TestFuturePacket mTestFuturePacket{
+        std::chrono::microseconds {0},
+        std::chrono::seconds {3600}};
+    UWaveServer::TestExpiredPacket mTestExpiredPacket{
+        std::chrono::days {90},
+        std::chrono::seconds {3600}};
     mutable std::mutex mStopContext;
     std::condition_variable mStopCondition;
     std::vector<std::thread> mDatabaseWriterThreads;

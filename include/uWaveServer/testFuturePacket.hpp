@@ -17,8 +17,8 @@ class TestFuturePacket
 public:
     /// @brief Constructs a future time checker with a default max future time
     ///        of 0 (which after data transmission and scraping from some type
-    ///        of import device) is pretty conservative and will log flagged
-    ///        packets every hour. 
+    ///        of import device is pretty conservative).  Sensors sending
+    ///        packets from the future will be logged every hour.
     TestFuturePacket();
     /// @param[in] maxFutureTime  If the time of the last sample in the packet
     ///                           exceeds now + maxFutureTime then the packet

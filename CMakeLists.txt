@@ -20,7 +20,7 @@ if (NOT BUILD_SHARED_LIBS)
 endif()
 find_package(spdlog REQUIRED)
 find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
-find_package(PostgreSQL REQUIRED)
+#find_package(PostgreSQL REQUIRED)
 find_package(nlohmann_json 3.8.0 REQUIRED)
 find_package(Boost COMPONENTS program_options url REQUIRED)
 find_package(MiniSEED REQUIRED)
@@ -51,6 +51,7 @@ configure_file(${CMAKE_SOURCE_DIR}/lib/private/version.hpp.in
 set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
     lib/dataClient/streamSelector.cpp
+    lib/testExpiredPacket.cpp
     lib/testFuturePacket.cpp
     lib/packet.cpp
     lib/packetSanitizer.cpp
@@ -89,7 +90,7 @@ target_link_libraries(uWaveServer
                       PUBLIC nlohmann_json::nlohmann_json SOCI::Core SOCI::PostgreSQL
                       PRIVATE spdlog::spdlog ${MINISEED_LIBRARY})
 target_include_directories(uWaveServer
-                           PRIVATE ${MINISEED_INCLUDE_DIR} ${PostgreSQL_INCLUDE_DIRS}
+                           PRIVATE ${MINISEED_INCLUDE_DIR} #${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                            PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>

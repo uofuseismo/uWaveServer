@@ -12,6 +12,7 @@ find_path(SEEDLINK_INCLUDE_DIR
           )
 # Find the library components
 if (BUILD_SHARED_LIBS)
+   message("Looking for libslink shared")
    find_library(SEEDLINK_LIBRARY
                 NAMES libslink.so
                 PATHS $ENV{SEEDLINK_ROOT}/lib/
@@ -20,6 +21,7 @@ if (BUILD_SHARED_LIBS)
                       /usr/local/lib
                 )
 else()
+   message("Looking for libslink static")
    find_library(SEEDLINK_LIBRARY
                 NAME libslink.a
                 PATHS $ENV{SEEDLINK_ROOT}/lib/

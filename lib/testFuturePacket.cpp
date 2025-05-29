@@ -48,6 +48,8 @@ public:
         mMaxFutureTime(maxFutureTime),
         mLogBadDataInterval(logBadDataInterval)
     {
+        // This might be okay if you really want to account for telemetry
+        // lags.  But that's a dangerous game so I'll let the user know.
         if (mMaxFutureTime.count() < 0)
         {
             spdlog::warn("Max future time is negative");
