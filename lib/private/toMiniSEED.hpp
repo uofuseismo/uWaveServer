@@ -48,10 +48,11 @@ int encodingInteger(const UWaveServer::Packet::DataType dataType)
 }
 
 [[nodiscard]]
-int getMiniSEEDEncoding(const int encoding)
+int getMiniSEEDEncoding(const int encoding, const bool canDoSTEIM2)
 {
     if (encoding == INT_ENCODING)
     {
+        if (canDoSTEIM2){return DE_STEIM2;}
         return DE_INT32;
     }
     else if (encoding == FLOAT_ENCODING)
@@ -73,6 +74,8 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     std::string outputBuffer;
     if (packets.empty()){return outputBuffer;}
     int maxEncodingInteger{-1};
+    bool canDoSTEIM2{false};
+    int64_t nEstimateSamplesToPack{0};
     for (const auto &packet : packets)
     {
         if (!packet.empty() &&
@@ -80,6 +83,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
             packet.haveStation() &&
             packet.haveChannel())
         {
+            nEstimateSamplesToPack = packet.size() + nEstimateSamplesToPack;
             auto encodingInteger = ::encodingInteger(packet.getDataType());
             maxEncodingInteger = std::max(encodingInteger, maxEncodingInteger);
         }
@@ -87,6 +91,10 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     if (maxEncodingInteger ==-1)
     {
         throw std::invalid_argument("Appears to be no data to pack");
+    }
+    if (maxEncodingInteger == INT_ENCODING)
+    {
+        canDoSTEIM2 = true;
     }
     // Package things up 
     MS3TraceList *msTraceList{nullptr};
@@ -147,6 +155,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                 if (encodingInteger == INT_ENCODING)
                 {
                     msRecord->encoding = DE_INT32;
+                    if (canDoSTEIM2){msRecord->encoding = DE_STEIM2;}
                     msRecord->sampletype = 'i';
                     msRecord->datasamples = const_cast<void *> (packet.data());
                 }
@@ -212,7 +221,8 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     writeToBufferFlags |= MSF_FLUSHDATA;
     writeToBufferFlags |= MSF_MAINTAINMSTL; // Do not modify while packing
     if (!useMiniSEED3){writeToBufferFlags |= MSF_PACKVER2;}
-    auto mseedEncoding = ::getMiniSEEDEncoding(maxEncodingInteger);
+    auto mseedEncoding
+        = ::getMiniSEEDEncoding(maxEncodingInteger, canDoSTEIM2);
     char *extraHeaders{nullptr};
     constexpr int8_t verbose{0};
     auto nRecordsPacked = mstl3_pack(msTraceList,
