@@ -7,7 +7,9 @@ USER root
 ENV PATH="$PATH:/usr/local/bin"
 ENV BOOST_ROOT="/usr/local"
 ENV CPLUS_INCLUDE_PATH="/usr/local/include:${CPLUS_INCLUDE_PATH}"
-ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/soci_shared/lib:/usr/local/spdlog_shared/lib"
+ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/lib/cmake/spdlog/"
+ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/lib/cmake/spdlog/"
 
 RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get update &&\
@@ -58,7 +60,9 @@ RUN mkdir -p /home/ubuntu &&\
 
 # i don't like how ubuntu installs boost - i get everything and i really
 # don't need it
-RUN cd /home/ubuntu &&\
+RUN mkdir -p /usr/local/spdlog_static &&\
+    mkdir -p /usr/local/soci_static &&\
+    cd /home/ubuntu &&\
     wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz &&\
     tar -xf boost_1_88_0.tar.gz &&\
     rm boost_1_88_0.tar.gz &&\
@@ -105,9 +109,15 @@ RUN cd /home/ubuntu &&\
     tar -xf v1.15.3.tar.gz &&\
     rm v1.15.3.tar.gz &&\
     cd spdlog-1.15.3 &&\
-    mkdir build &&\
-    cd build &&\
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=ON &&\
+    mkdir build_static &&\
+    mkdir build_shared &&\
+    cd build_static &&\
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/spdlog_static &&\
+    make &&\
+    make install &&\
+    cd ../ &&\
+    cd build_shared &&\
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=ON -DCMAKE_INSTALL_PREFIX=/usr/local/spdlog_shared &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
@@ -127,9 +137,15 @@ RUN cd /home/ubuntu &&\
     tar -xf v4.1.1.tar.gz &&\
     rm v4.1.1.tar.gz &&\
     cd soci-4.1.1 &&\
-    mkdir build &&\
-    cd build &&\
-    cmake .. -DSOCI_TESTS=OFF -DCMAKE_CXX_STANDARD=17 &&\
+    mkdir build_static &&\
+    mkdir build_shared &&\
+    cd build_static &&\
+    cmake .. -DSOCI_SHARED=OFF -DSOCI_TESTS=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr/local/soci_static &&\
+    make &&\
+    make install &&\
+    cd ../ &&\
+    cd build_shared &&\
+    cmake .. -DSOCI_SHARED=ON -DSOCI_TESTS=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr/local/soci_shared &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
@@ -141,3 +157,6 @@ RUN cd /home/ubuntu &&\
 #    mkdir build &&\
 #    cd build &&\
 #    cmake ..
+ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/cmake/"
+ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/cmake/"
+# To use cmake -DCMAKE_MODULE_PATH=${CMAKE_XXXXXX_MODULE_PATH}

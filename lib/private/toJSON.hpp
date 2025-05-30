@@ -21,28 +21,34 @@ nlohmann::json toJSON(const UWaveServer::Packet &packet)
     {
         if (dataType == UWaveServer::Packet::DataType::Integer32)
         {
+            result["dataType"] = "int32_t";
             result["samples"] = packet.getData<int> ();
         }
         else if (dataType == UWaveServer::Packet::DataType::Integer64)
         {
+            result["dataType"] = "int64_t";
             result["samples"] = packet.getData<int64_t> ();
         }
         else if (dataType == UWaveServer::Packet::DataType::Double)
         {
+            result["dataType"] = "double";
             result["samples"] = packet.getData<double> ();
         }
         else if (dataType == UWaveServer::Packet::DataType::Float)
         {
+            result["dataType"] = "float";
             result["samples"] = packet.getData<float> ();
         }
         else
         {
             spdlog::warn("Undefined data type");
+            result["dataType"] = nullptr;
             result["samples"] = nullptr;
         }
     }
     else
     {
+        result["dataType"] = nullptr;
         result["samples"] = nullptr;
     }
     return result;

@@ -1,25 +1,43 @@
+#include <iostream>
 #include <thread>
 #include <vector>
 #include <string>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <boost/program_options.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "uWaveServer/database/client.hpp"
 #include "callback.hpp"
 #include "listener.hpp"
 
+#define DEFAULT_ADDRESS "0.0.0.0" // 127.0.0.1 is good for local dev but this works better for containers
+
 struct ProgramOptions
 {
-    boost::asio::ip::address address{boost::asio::ip::make_address("0.0.0.0")}; //127.0.0.1")};
-    std::filesystem::path documentRoot{"./"}; 
+    boost::asio::ip::address address{boost::asio::ip::make_address(DEFAULT_ADDRESS)};
+    std::filesystem::path documentRoot{std::filesystem::current_path()}; 
     int nThreads{1};
     unsigned short port{80}; //51};
+    bool helpOnly{false};
 };
+[[nodiscard]] ::ProgramOptions parseCommandLineOptions(int argc, char *argv[]);
 
-int main()
+int main(int argc, char *argv[])
 {
     ProgramOptions programOptions;
+    try 
+    {
+        programOptions = parseCommandLineOptions(argc, argv);
+        if (programOptions.helpOnly){return EXIT_SUCCESS;}
+    }   
+    catch (const std::exception &e) 
+    {   
+        spdlog::error(e.what());
+        return EXIT_FAILURE;
+    }   
 
     UWaveServer::Database::Connection::PostgreSQL databaseConnection;
     try
@@ -126,4 +144,83 @@ return EXIT_SUCCESS;
     ioContext.run();
 
     return EXIT_SUCCESS;
+}
+
+/// @brief Parses the command line options.
+::ProgramOptions parseCommandLineOptions(int argc, char *argv[])
+{
+    ::ProgramOptions result;
+    boost::program_options::options_description desc(
+R"""(
+The uWaveServer responds to waveform queries.
+
+Example usage:
+    uWaveServer --address=127.0.0.1 --port=8080 --document_root=./ --n_threads=1
+
+Additionally, you should specify the following environment variables:
+    UWAVE_SERVER_DATABASE_HOST
+    UWAVE_SERVER_DATABASE_NAME
+    UWAVE_SERVER_DATABASE_PORT
+    UWAVE_SERVER_DATABASE_READ_ONLY_USER
+    UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD
+
+Allowed options)""");
+    desc.add_options()
+        ("help",    "Produces this help message")
+        ("address", boost::program_options::value<std::string> ()->default_value(DEFAULT_ADDRESS),
+                    "The address at which to bind")
+        ("port",    boost::program_options::value<uint16_t> ()->default_value(result.port),
+                    "The port on which to bind")
+        ("document_root", boost::program_options::value<std::string> ()->default_value(result.documentRoot),
+                    "The document root in case files are served");
+    //    ("n_threads", boost::program_options::value<int> ()->default_value(1),
+    //                 "The number of threads");
+    boost::program_options::variables_map vm; 
+    boost::program_options::store(
+        boost::program_options::parse_command_line(argc, argv, desc), vm); 
+    boost::program_options::notify(vm);
+    if (vm.count("help"))
+    {   
+        std::cout << desc << std::endl;
+        result.helpOnly = true;
+        return result;
+    }
+    if (vm.count("address"))
+    {   
+        auto address = vm["address"].as<std::string>();
+        if (address.empty()){throw std::invalid_argument("Address is empty");}
+        result.address = boost::asio::ip::make_address(address); 
+    }   
+    if (vm.count("port"))
+    {   
+        auto port = vm["port"].as<uint16_t> (); 
+        result.port = port;
+    }   
+    if (vm.count("document_root"))
+    {   
+        auto documentRoot = vm["document_root"].as<std::string>();
+        if (documentRoot.empty()){documentRoot = "./";}
+        if (!std::filesystem::exists(documentRoot))
+        {
+            // We can attempt to make the directory
+            if (!std::filesystem::create_directories(documentRoot))
+            {
+                throw std::runtime_error(
+                   "Failed to make document root directory " + documentRoot);
+            }
+            if (!std::filesystem::exists(documentRoot))
+            {
+                throw std::runtime_error("Document root: " + documentRoot
+                                       + " does not exist");
+            }
+        }
+        result.documentRoot = documentRoot;
+    }
+    if (vm.count("n_threads"))
+    {   
+        auto nThreads = vm["n_threads"].as<int> (); 
+        if (nThreads < 1){throw std::invalid_argument("Number of threads must be positive");}
+        result.nThreads = nThreads;
+    }   
+    return result;
 }
