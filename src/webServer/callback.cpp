@@ -319,7 +319,7 @@ std::cout << "---------------------------" << std::endl;
             {
                 wantMiniSEED = false;
             }
-            else if (format == "MINISEED2")
+            else if (format == "MINISEED2" || format == "MSEED2")
             {
                 useMiniSEED3 = false;
             }
@@ -343,7 +343,14 @@ std::cout << "---------------------------" << std::endl;
                                   + " must be less than end[time] = "
                                   + std::to_string(endTime));
     }
-    spdlog::info("Querying: " + network + "." + station + "." + channel + "." + locationCode + " from time " + std::to_string(startTime) + " to " + std::to_string(endTime));
+    auto loggingName = network + "." + station + "." + channel;
+    if (!locationCode.empty())
+    {
+        loggingName = loggingName + "." + locationCode;
+    }
+    spdlog::info("Querying: " + loggingName
+               + " from time " + std::to_string(startTime)
+               + " to " + std::to_string(endTime));
     std::vector<UWaveServer::Packet> packets;
     if (pImpl->mPostgresClient)
     {
@@ -360,6 +367,7 @@ std::cout << "---------------------------" << std::endl;
     {
         if (wantMiniSEED)
         {
+            spdlog::info("Packaging result as mseed");
             std::string payload;
             try
             {
@@ -373,12 +381,17 @@ std::cout << "---------------------------" << std::endl;
                            + std::string {e.what()});
                 throw std::runtime_error("Failed to result to mseed");
             }
-std::cout << payload.size() << std::endl;
+            spdlog::info("Payload size "
+                       + std::to_string(payload.size())
+                       + " bytes");
             return std::pair {payload, "application/octet-stream"};
         }
         else
         {
+            spdlog::info("Packaging result as JSON");
             auto payload = ::toJSON(packets);
+            spdlog::info("Payload size " + std::to_string(payload.size())
+                       + " bytes");
             return std::pair {payload.dump(-1), "application/json"};
         }
     }
