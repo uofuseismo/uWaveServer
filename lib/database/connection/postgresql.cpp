@@ -217,13 +217,36 @@ void PostgreSQL::connect()
     catch (const std::exception &e)
     {
         throw std::runtime_error("Failed to connect to postgresql with error:\n"
-                               + std::string{e.what()});
+                               + std::string {e.what()});
     }
 }
 
 void PostgreSQL::reconnect()
 {
-    pImpl->mSession.reconnect();
+    try
+    {
+        pImpl->mSession.reconnect();
+    }
+    catch (const std::exception  &e)
+    {
+        throw std::runtime_error("Reconnect to postgres failed with error:\n"
+                               + std::string {e.what()});
+    }
+    try
+    {
+        auto schema = getSchema();
+        if (!schema.empty())
+        {
+            auto query = "SET SCHEMA '" + schema + "'";
+            pImpl->mSession.once << query;
+        }
+    }
+    catch (const std::exception &e)
+    {
+        throw std::runtime_error("Failed to set schema to " + getSchema() 
+                               + " during reconnect.  Failed with "
+                               + std::string {e.what()});
+    } 
 }
 
 bool PostgreSQL::isConnected() const noexcept
