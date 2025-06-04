@@ -75,7 +75,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     if (packets.empty()){return outputBuffer;}
     int maxEncodingInteger{-1};
     bool canDoSTEIM2{false};
-    int64_t nEstimateSamplesToPack{0};
+    //int64_t nEstimateSamplesToPack{0};
     for (const auto &packet : packets)
     {
         if (!packet.empty() &&
@@ -83,7 +83,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
             packet.haveStation() &&
             packet.haveChannel())
         {
-            nEstimateSamplesToPack = packet.size() + nEstimateSamplesToPack;
+            //nEstimateSamplesToPack = packet.size() + nEstimateSamplesToPack;
             auto encodingInteger = ::encodingInteger(packet.getDataType());
             maxEncodingInteger = std::max(encodingInteger, maxEncodingInteger);
         }

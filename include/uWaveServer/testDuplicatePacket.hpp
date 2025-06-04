@@ -38,6 +38,15 @@ public:
     ///                                this interval.
     TestDuplicatePacket(const int circularBufferSize,
                         const std::chrono::seconds &logBadDataInterval);
+    /// @param[in] circularBufferDuration  The approximate temporal duration
+    ///                                    of the circular buffer.
+    /// @param[in] logBadDataInterval  If this is postiive then this iwll
+    ///                                log flagged channels at approximately
+    ///                                this interval.
+    /// @note This will estimate the capacity based on the size a sensor's
+    ///       first packet.
+    TestDuplicatePacket(const std::chrono::seconds &circularBufferDuration,
+                        const std::chrono::seconds &logBadDataInterval);
     /// @brief Copy constructor.
     TestDuplicatePacket(const TestDuplicatePacket &testDuplicatePacket);
     /// @brief Move constructor.

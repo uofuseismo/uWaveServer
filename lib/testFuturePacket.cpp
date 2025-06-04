@@ -96,7 +96,7 @@ public:
         {
             spdlog::warn("Failed to add " + name + " to set");
         }
-        if (nowSeconds > mLastLogTime + mLogBadDataInterval)
+        if (nowSeconds >= mLastLogTime + mLogBadDataInterval)
         {
             if (!mFutureChannels.empty())
             {
@@ -107,8 +107,8 @@ public:
                 }
                 spdlog::info(message);
                 mFutureChannels.clear();
+                mLastLogTime = nowSeconds;
             }
-            mLastLogTime = nowSeconds;
         }
         }
     }

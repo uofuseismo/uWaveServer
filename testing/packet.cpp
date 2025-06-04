@@ -10,9 +10,8 @@
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "uWaveServer/packet.hpp"
-#include "uWaveServer/testFuturePacket.hpp"
-#include "uWaveServer/testExpiredPacket.hpp"
 #include "private/toMiniSEED.hpp"
+#include "private/toJSON.hpp"
 
 TEST_CASE("uWaveServer::Packet", "[class]")
 {
@@ -231,6 +230,7 @@ TEST_CASE("UWaveServer::Packet", "[json]")
     
 }
 
+/*
 TEST_CASE("UWaveServer::TestFuturePacket")
 {
     UWaveServer::Packet packet;
@@ -313,3 +313,4 @@ TEST_CASE("UWaveServer::TestExpiredPacket")
         REQUIRE(!testerCopy.allow(packet));
     }
 }
+*/

@@ -12,6 +12,7 @@
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/packetSanitizer.hpp"
 #include "uWaveServer/packetSanitizerOptions.hpp"
+#include "uWaveServer/testDuplicatePacket.hpp"
 #include "uWaveServer/testFuturePacket.hpp"
 #include "uWaveServer/testExpiredPacket.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
@@ -117,9 +118,11 @@ public:
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
 
         // Create the shallow packet sanitizer
+/*
         mPacketSanitizer
             = std::make_unique<UWaveServer::PacketSanitizer>
               (options.mPacketSanitizerOptions);
+*/
 
         // Create the database connection
         spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
@@ -227,6 +230,7 @@ public:
                 {
                     spdlog::warn("Failed to check future packet data because " 
                                + std::string {e.what()} + "; skipping");
+                    allow = false;
                 } 
                 // Handle expired data
                 try
@@ -237,20 +241,19 @@ public:
                 {
                     spdlog::warn("Failed to check expired packet data because "
                                + std::string {e.what()} + "; skipping");
+                    allow = false;
                 }
                 // Handle duplicate data
                 try
                 {
-                    //allow = mTestFuturePacket.allow(packet);
-                    if (allow && mPacketSanitizer)
-                    {
-                        allow = mPacketSanitizer->allow(packet);
-                    }
+                    if (allow){allow = mTestShallowDuplicatePacket.allow(packet);}
+                    if (allow){allow = mTestDeepDuplicatePacket.allow(packet);}
                 }
                 catch (const std::exception &e)
                 {
-                    spdlog::warn("Failed to sanitize packet because "
+                    spdlog::warn("Failed to test for duplicate packet because "
                                + std::string {e.what()} + "; skipping");
+                    allow = false;
                 }
                 if (allow)
                 {
@@ -501,7 +504,7 @@ int printEvery{0};
     //::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
     std::vector<std::unique_ptr<UWaveServer::Database::Client>> mDatabaseClients;//{nullptr};
-    std::unique_ptr<UWaveServer::PacketSanitizer> mPacketSanitizer{nullptr};
+    //std::unique_ptr<UWaveServer::PacketSanitizer> mPacketSanitizer{nullptr};
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
         mDataAcquisitionClients;
     std::function<void(std::vector<UWaveServer::Packet> &&packet)>
@@ -510,6 +513,12 @@ int printEvery{0};
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    UWaveServer::TestDuplicatePacket mTestShallowDuplicatePacket {
+        15, // Last 15 packets (good for multiple telemetry routes)
+        std::chrono::seconds {-1}};
+    UWaveServer::TestDuplicatePacket mTestDeepDuplicatePacket {
+        std::chrono::seconds {120},
+        std::chrono::seconds {3600}};
     UWaveServer::TestFuturePacket mTestFuturePacket{
         std::chrono::microseconds {0},
         std::chrono::seconds {3600}};

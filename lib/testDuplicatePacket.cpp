@@ -1,3 +1,4 @@
+#include <iostream>
 #include <cmath>
 #include <algorithm>
 #include <chrono>
@@ -70,7 +71,8 @@ public:
                                    + name);
             //return false;
         }
-        auto dStartTime = (rhs.startTime.count() - startTime.count());
+        if (rhs.nSamples != nSamples){return false;}
+        auto dStartTime = std::abs(rhs.startTime.count() - startTime.count());
         if (samplingRate < 105)
         {
             return (dStartTime < std::chrono::microseconds {15000}.count());
@@ -117,6 +119,10 @@ class TestDuplicatePacket::TestDuplicatePacketImpl
 {
 public:
     TestDuplicatePacketImpl() = default;
+    TestDuplicatePacketImpl(const TestDuplicatePacketImpl &impl)
+    {   
+        *this = impl;
+    }   
     void logBadData()
     {
         if (!mLogBadData){return;}
@@ -126,19 +132,33 @@ public:
              (now).time_since_epoch();
         auto nowSeconds
             = std::chrono::duration_cast<std::chrono::seconds> (nowMuSeconds);
-        if (nowSeconds > mLastLogTime + mLogBadDataInterval)
+        {
+        std::lock_guard<std::mutex> lockGuard(mMutex);
+        if (nowSeconds >= mLastLogTime + mLogBadDataInterval)
         {
             if (!mDuplicateChannels.empty())
             {
-                std::string message{"Duplicate data detected for:"};
+                std::string message{"Duplicate packets detected for:"};
                 for (const auto &channel : mDuplicateChannels)
                 {
                     message = message + " " + channel;
                 }
                 spdlog::info(message);
                 mDuplicateChannels.clear();
+                mLastLogTime = nowSeconds;
             }
-            mLastLogTime = nowSeconds;
+            if (!mBadTimingChannels.empty())
+            {
+                std::string message{"Bad timing detected for:"};
+                for (const auto &channel : mBadTimingChannels)
+                {
+                    message = message + " " + channel;
+                }
+                spdlog::info(message);  
+                mBadTimingChannels.clear();
+                mLastLogTime = nowSeconds;
+            }
+        }
         }
     }
     [[nodiscard]] bool allow(const ::DataPacketHeader &header) const
@@ -152,23 +172,23 @@ public:
         bool firstExample{false};
         if (circularBufferIndex == mCircularBuffers.end())
         {
-             int capacity = mCircularBufferSize;
-             if (mEstimateCapacity)
-             {
-                 capacity
-                     = ::estimateCapacity(header,
-                                          mCircularBufferDuration);
-             }
-             spdlog::info("Creating new circular buffer for: "
-                        + header.name + " with capacity: "
-                        + std::to_string(capacity));
-             boost::circular_buffer<::DataPacketHeader>
-                 newCircularBuffer(capacity);
-             newCircularBuffer.push_back(header);
-             mCircularBuffers.insert(std::pair{header.name,
-                                               std::move(newCircularBuffer)});
-             // Can't be a a duplicate because its the first one
-             return true;
+            int capacity = mCircularBufferSize;
+            if (mEstimateCapacity)
+            {
+                capacity
+                    = ::estimateCapacity(header,
+                                         mCircularBufferDuration);
+            }
+            spdlog::info("Creating new circular buffer for: "
+                       + header.name + " with capacity: "
+                       + std::to_string(capacity));
+            boost::circular_buffer<::DataPacketHeader>
+                newCircularBuffer(capacity);
+            newCircularBuffer.push_back(header);
+            mCircularBuffers.insert(std::pair{header.name,
+                                              std::move(newCircularBuffer)});
+            // Can't be a a duplicate because its the first one
+            return true;
         }
         // Now we should definitely be able to find the appropriate circular
         // buffer for this stream 
@@ -191,23 +211,26 @@ public:
             {
                 spdlog::debug("Detected duplicate for: "
                             + header.name);
+                {
+                std::lock_guard<std::mutex> lockGuard(mMutex);
                 if (!mDuplicateChannels.contains(header.name))
                 {
                     mDuplicateChannels.insert(header.name);
+                }
                 }
             }
             return false;
         }
         // Insert it (typically new stuff shows up)
-        if (header > circularBufferIndex->second.back())
+        if (header.startTime > circularBufferIndex->second.back().endTime)
         {
-            //spdlog::debug("Inserting " + header.name
-            //            + " at end of circular buffer");
+            spdlog::debug("Inserting " + header.name
+                        + " at end of circular buffer");
             circularBufferIndex->second.push_back(header);
             return true;
         }
         // If it is is really old and there's space then push to front
-        if (header < circularBufferIndex->second.front())
+        if (header.endTime < circularBufferIndex->second.front().startTime)
         {
             if (!circularBufferIndex->second.full())
             {
@@ -240,9 +263,12 @@ public:
                 {
                     spdlog::debug("Detected possible timing slip for: "
                                  + header.name);
+                    {
+                    std::lock_guard<std::mutex> lockGuard(mMutex);
                     if (!mBadTimingChannels.contains(header.name))
                     {   
                         mBadTimingChannels.insert(header.name);
+                    }
                     }
                 }
                 return false;
@@ -260,6 +286,25 @@ public:
                   });
         return true;
     }
+    TestDuplicatePacketImpl& operator=(const TestDuplicatePacketImpl &impl)
+    {
+        if (&impl == this){return *this;}
+        {
+        std::lock_guard<std::mutex> lockGuard(impl.mMutex);
+        mCircularBuffers = impl.mCircularBuffers;
+        mDuplicateChannels = impl.mDuplicateChannels;
+        mBadTimingChannels = impl.mBadTimingChannels;
+        mLastLogTime = impl.mLastLogTime; 
+        }
+        mLogBadDataInterval = impl.mLogBadDataInterval;
+        mCircularBufferDuration = impl.mCircularBufferDuration;
+        mCircularBufferSize = impl.mCircularBufferSize;
+        mLogBadData = impl.mLogBadData;
+        mEstimateCapacity = impl.mEstimateCapacity;
+        return *this;
+    }
+//private:
+    mutable std::mutex mMutex;
     mutable std::map<std::string, boost::circular_buffer<::DataPacketHeader>>
         mCircularBuffers;
     mutable std::set<std::string> mDuplicateChannels;
@@ -272,13 +317,44 @@ public:
     bool mEstimateCapacity{false};
 };
 
-/*
 /// Constructor
 TestDuplicatePacket::TestDuplicatePacket() :
     pImpl(std::make_unique<TestDuplicatePacketImpl> ())
 {
 }
-*/
+
+/// Constructor
+TestDuplicatePacket::TestDuplicatePacket(
+    const int circularBufferSize,
+    const std::chrono::seconds &logBadDataInterval) :
+    pImpl(std::make_unique<TestDuplicatePacketImpl> ())
+{
+    if (circularBufferSize < 1)
+    {
+        throw std::invalid_argument("Circular buffer size must be positive");
+    }
+    pImpl->mCircularBufferSize = circularBufferSize; 
+    pImpl->mLogBadDataInterval = logBadDataInterval;
+    pImpl->mEstimateCapacity = false;
+    pImpl->mLogBadData = pImpl->mLogBadDataInterval.count() >= 0 ? true : false;
+}
+
+/// Constructor
+TestDuplicatePacket::TestDuplicatePacket(
+    const std::chrono::seconds &circularBufferDuration,
+    const std::chrono::seconds &logBadDataInterval) :
+    pImpl(std::make_unique<TestDuplicatePacketImpl> ())
+{
+    if (circularBufferDuration.count() < 1)
+    {
+        throw std::invalid_argument(
+           "Circular buffer duration must be positive");
+    }
+    pImpl->mCircularBufferDuration = circularBufferDuration;
+    pImpl->mLogBadDataInterval = logBadDataInterval;
+    pImpl->mEstimateCapacity = true;
+    pImpl->mLogBadData = pImpl->mLogBadDataInterval.count() >= 0 ? true : false;
+}
 
 /// Copy constructor
 TestDuplicatePacket::TestDuplicatePacket(
@@ -339,7 +415,24 @@ bool TestDuplicatePacket::allow(const UWaveServer::Packet &packet) const
           + std::string {e.what()} + "; Not allowing...");
         return false;
     }
-    auto allow = pImpl->allow(header);
-    pImpl->logBadData();
+    bool allow{true};
+    try
+    {
+        allow = pImpl->allow(header);
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::warn("Failed to check packet because "  
+                   + std::string {e.what()});
+    }
+    try
+    {
+        pImpl->logBadData();
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::warn("Error: " + std::string {e.what()}
+                   + " detected during logging expired data.");
+    }
     return allow;
 }
