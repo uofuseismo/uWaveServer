@@ -66,6 +66,48 @@ public:
 private:
     std::string mMessage;
 };
+/// @brief This should result in a 204 no-content error.
+/// @copyright Ben Baker (UUSS) distributed under the MIT license.
+class NoContentException final : public std::exception 
+{
+public:
+    NoContentException(const std::string &message) :
+        mMessage(message)
+    {   
+    }   
+    NoContentException(const char *message) :
+        mMessage(message)
+    {   
+    }   
+    ~NoContentException() final = default;
+    virtual const char *what () const noexcept final
+    {   
+        return mMessage.c_str();
+    }   
+private:
+    std::string mMessage;
+};
+/// @brief This should result in a 404 not found error.
+/// @copyright Ben Baker (UUSS) distributed under the MIT license.
+class NotFoundException final : public std::exception 
+{
+public:
+    NotFoundException(const std::string &message) :
+        mMessage(message)
+    {   
+    }   
+    NotFoundException(const char *message) :
+        mMessage(message)
+    {   
+    }   
+    ~NotFoundException() final = default;
+    virtual const char *what () const noexcept final
+    {   
+        return mMessage.c_str();
+    }   
+private:
+    std::string mMessage;
+};
 
 }
 #endif

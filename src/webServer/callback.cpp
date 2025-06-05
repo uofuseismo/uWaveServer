@@ -10,6 +10,7 @@
 #include "private/toMiniSEED.hpp"
 #include "private/toJSON.hpp"
 #include "callback.hpp"
+#include "exceptions.hpp"
 
 using namespace UWaveServer::WebServer;
 
@@ -269,7 +270,7 @@ std::cout << "---------------------------" << std::endl;
     std::string station;
     std::string channel;
     std::string locationCode;
-    std::string nodata{"404"};
+    std::string nodata{"204"};
     double startTime{0};
     double endTime{0};
     int miniSEEDRecordLength{512}; // Typical for our data 
@@ -395,8 +396,11 @@ std::cout << "---------------------------" << std::endl;
             return std::pair {payload.dump(-1), "application/json"};
         }
     }
-    // Maybe it came from curl
-    return std::pair{"{\"win\" : \"yes\"}", "application/json"};
+    if (nodata == "404")
+    {
+        throw NotFoundException("No data for request: " + requestString);
+    }
+    throw NoContentException("No data for request: " + requestString);
 }
 
 /// @result A function pointer to the callback.

@@ -255,6 +255,29 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         return result;
     };
 
+    // Returns a no content response
+    const auto noContent = [&request](boost::beast::string_view target)
+    {
+        spdlog::debug("No packets found corresponding to request");
+        boost::beast::http::response<boost::beast::http::string_body> result
+        {
+            boost::beast::http::status::no_content,
+            request.version()
+        };
+#ifdef ENABLE_CORS
+        result.set(boost::beast::http::field::access_control_allow_origin, "*");
+#endif
+        result.set(boost::beast::http::field::server,
+                   BOOST_BEAST_VERSION_STRING);
+        result.set(boost::beast::http::field::content_type,
+                   "text/html");
+        result.keep_alive(request.keep_alive());
+        result.body() = "The resource '" + std::string(target)
+                      + "' was not found.";
+        result.prepare_payload();
+        return result;
+    };  
+
     // Returns an indication that user is not authorized
     const auto unauthorized = [&request](boost::beast::string_view target)
     {
@@ -384,6 +407,14 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         catch (const UWaveServer::WebServer::UnimplementedException &e)
         {
             return unimplemented(e.what());
+        }
+        catch (const UWaveServer::WebServer::NoContentException &e)
+        {
+            return noContent(e.what());
+        }
+        catch (const UWaveServer::WebServer::NotFoundException &e)
+        {
+            return notFound(e.what());
         }
         catch (const std::invalid_argument &e)
         {
