@@ -21,7 +21,6 @@ jobs:
       - run:
           name: "Configure code"
           command: |
-            bash 
             if [ -d build ]; then
                rm -rf build
             fi
@@ -34,9 +33,15 @@ jobs:
             cd build
             make
       - run:
+          name: "Install the code"
+          command: |
+            cd build
+            make install
+      - run:
            name: "Test the code"
            command: |
             cd build
+            export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local
             ctest --verbose
 
 # Orchestrate jobs using workflows
