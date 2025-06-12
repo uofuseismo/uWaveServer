@@ -47,6 +47,7 @@ jobs:
       - run:
            name: "Package code"
            command: |
+             cd build
              mkdir -p /tmp/artifacts
              cpack -B /tmp/artifacts
              rm -rf /tmp/artifacts/_CPack_Packages
