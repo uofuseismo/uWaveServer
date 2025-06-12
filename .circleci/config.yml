@@ -17,7 +17,6 @@ jobs:
     # Add steps to the job
     # See: https://circleci.com/docs/jobs-steps/#steps-overview & https://circleci.com/docs/configuration-reference/#steps
     steps:
-      # Checkout the code as the first step.
       - checkout
       - run:
           name: "Configure code"
@@ -27,12 +26,12 @@ jobs:
             fi
             mkdir build
             cd build
-            cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local/uWaveServer
+            cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local/
       - run:
           name: "Build the code"
           command: |
             cd build
-            # Docker large claims to have 4 vCPUs
+            # resource class small has 1 vcpu and medium has 2
             make -j 1
       - run:
           name: "Install the code"
@@ -45,13 +44,18 @@ jobs:
             cd build
             export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/uWaveServer/lib:/usr/local/lib
             ctest --verbose
+      - run:
+           name: "Package code"
+           command: |
+             mkdir -p /tmp/artifacts
+             cpack -B /tmp/artifacts
+             rm -rf /tmp/artifacts/_CPack_Packages
       - store_artifacts:
-          path: /usr/local/uWaveServer  
+          path: /tmp/artifacts
 
 # Orchestrate jobs using workflows
 # See: https://circleci.com/docs/workflows/ & https://circleci.com/docs/configuration-reference/#workflows
 workflows:
-  compile-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  compile-workflow: 
     jobs:
       - compile-job
