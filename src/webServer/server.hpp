@@ -273,8 +273,8 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
                    "text/html");
         result.keep_alive(request.keep_alive());
 spdlog::info(std::string(target));
-        result.body() = "The resource '" + std::string{target}
-                      + "' was not found.";
+        //result.body() = "The resource '" + std::string{target}
+        //              + "' was not found.";
         result.prepare_payload();
 spdlog::info("return me");
         return result;
