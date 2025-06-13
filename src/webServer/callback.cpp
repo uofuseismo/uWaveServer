@@ -273,7 +273,7 @@ std::cout << "---------------------------" << std::endl;
     std::string station;
     std::string channel;
     std::string locationCode;
-    std::string nodata{"204"};
+    std::string nodata{"404"};
     double startTime{0};
     double endTime{0};
     int miniSEEDRecordLength{512}; // Typical for our data 
@@ -368,7 +368,6 @@ std::cout << "---------------------------" << std::endl;
                 if (postgresClient->contains(network, station,
                                              channel, locationCode))
                 {
- spdlog::info("foudn it");
                     wasFound = true;
                     packets = postgresClient->query(
                                  network, station, channel, locationCode,
@@ -424,7 +423,6 @@ std::cout << "---------------------------" << std::endl;
     }
     if (!packets.empty())
     {
-spdlog::info("got stuff");
         if (wantMiniSEED)
         {
             spdlog::info("Packaging result as mseed");
@@ -457,14 +455,8 @@ spdlog::info("got stuff");
     }
     if (nodata == "404")
     {
-spdlog::info("no data");
-spdlog::info(requestString);
-spdlog::info("return2");
         throw NotFoundException("No data for request: " + requestString);
     }
-spdlog::info("no data");
-spdlog::info(requestString);
-spdlog::info("return");
     throw NoContentException("No data for request: " + requestString);
 }
 

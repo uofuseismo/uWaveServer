@@ -235,7 +235,8 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     // Returns a not found response
     const auto notFound = [&request](boost::beast::string_view target)
     {
-        spdlog::info("Not found");
+        spdlog::debug("No packets found corresponding to request: "
+                    + std::string{target});
         boost::beast::http::response<boost::beast::http::string_body> result
         {
             boost::beast::http::status::not_found,
@@ -249,8 +250,8 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         result.set(boost::beast::http::field::content_type,
                    "text/html");
         result.keep_alive(request.keep_alive());
-        result.body() = "The resource '" + std::string{target}
-                      + "' was not found.";
+        result.body() = "Error 404: No data selected\n\nRequest:\n"
+                      + std::string{target};
         result.prepare_payload();
         return result;
     };
@@ -258,7 +259,8 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     // Returns a no content response
     const auto noContent = [&request](boost::beast::string_view target)
     {
-        spdlog::info("No packets found corresponding to request");
+        spdlog::debug("No packets found corresponding to request: "
+                    + std::string{target});
         boost::beast::http::response<boost::beast::http::string_body> result
         {
             boost::beast::http::status::no_content,
@@ -272,11 +274,9 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         result.set(boost::beast::http::field::content_type,
                    "text/html");
         result.keep_alive(request.keep_alive());
-spdlog::info(std::string(target));
         //result.body() = "The resource '" + std::string{target}
         //              + "' was not found.";
         result.prepare_payload();
-spdlog::info("return me");
         return result;
     };  
 
@@ -382,7 +382,6 @@ spdlog::info("return me");
                 = callback(request.base(),
                            request.body(),
                            request.method());
-spdlog::info("definitely not");
             boost::beast::http::response<boost::beast::http::string_body> result
             {
                 boost::beast::http::status::ok,
