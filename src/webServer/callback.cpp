@@ -372,6 +372,7 @@ std::cout << "---------------------------" << std::endl;
                     packets = postgresClient->query(
                                  network, station, channel, locationCode,
                                  startTime, endTime);
+                    if (packets.empty()){wasFound = false;} // Can try others
                 }
             }
             catch (const std::exception &e)

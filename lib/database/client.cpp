@@ -541,7 +541,11 @@ public:
         auto sensorIdentifier
             = getSensorIdentifier(network, station, channel,
                                   locationCode, addIfNotExists); // Throws
-        if (sensorIdentifier < 0){return false;}
+        if (sensorIdentifier < 0)
+        {
+            spdlog::info("not here");
+            return false;
+        }
         return true;
     }
     std::vector<Packet> query(const std::string &network,
@@ -569,7 +573,9 @@ public:
                                   locationCode, addIfNotExists); // Throws
         if (sensorIdentifier < 0)
         {
-            throw std::invalid_argument("Could not obtain sensor identifier");
+            throw std::invalid_argument(
+                "Could not obtain sensor identifier for "
+               + ::toName(network, station, channel, locationCode));
         }
         // Time to work
         auto session
