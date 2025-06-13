@@ -368,11 +368,16 @@ std::cout << "---------------------------" << std::endl;
                 if (postgresClient->contains(network, station,
                                              channel, locationCode))
                 {
+ spdlog::info("foudn it");
                     wasFound = true;
                     packets = postgresClient->query(
                                  network, station, channel, locationCode,
                                  startTime, endTime);
                     if (packets.empty()){wasFound = false;} // Can try others
+                }
+                else
+                {
+                    spdlog::info(::toName(network, station, channel, locationCode) + " not in that schema");
                 }
             }
             catch (const std::exception &e)
@@ -383,7 +388,7 @@ std::cout << "---------------------------" << std::endl;
         }
         if (!wasFound)
         {
-            spdlog::debug(::toName(network, station, channel, locationCode)
+            spdlog::info(::toName(network, station, channel, locationCode)
                         + " not in database");
         }
     }
@@ -452,9 +457,14 @@ spdlog::info("got stuff");
     }
     if (nodata == "404")
     {
+spdlog::info("no data");
 spdlog::info(requestString);
+spdlog::info("return2");
         throw NotFoundException("No data for request: " + requestString);
     }
+spdlog::info("no data");
+spdlog::info(requestString);
+spdlog::info("return");
     throw NoContentException("No data for request: " + requestString);
 }
 

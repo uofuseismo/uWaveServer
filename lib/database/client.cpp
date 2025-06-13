@@ -543,7 +543,6 @@ public:
                                   locationCode, addIfNotExists); // Throws
         if (sensorIdentifier < 0)
         {
-            spdlog::info("not here");
             return false;
         }
         return true;
