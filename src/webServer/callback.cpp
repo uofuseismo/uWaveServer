@@ -161,10 +161,8 @@ public:
                   const std::string &,
                   const boost::beast::http::verb)> mCallbackFunction;
     std::vector<std::unique_ptr<UWaveServer::Database::Client>> mPostgresClients;
+    //std::vector<std::set<std::string>> mSensors;
 /*
-    std::shared_ptr<
-       std::map<std::string, std::unique_ptr<CCTService::AQMSPostgresClient>>
-    > mAQMSClients{nullptr};
     std::shared_ptr<CCTService::IAuthenticator> mAuthenticator{nullptr};
 */
 };
@@ -174,9 +172,6 @@ public:
 Callback::Callback(
     std::vector<std::unique_ptr<UWaveServer::Database::Client>> &&postgresClients
 /*
-    std::shared_ptr<
-       std::map<std::string, std::unique_ptr<CCTService::AQMSPostgresClient>>
-    > &aqmsClients,
     std::shared_ptr<CCTService::IAuthenticator> &authenticator
 */
     ) :
@@ -194,10 +189,6 @@ Callback::Callback(
         }
     }
 /*
-    if (!cctEventsService->isRunning())
-    {
-        throw std::runtime_error("CCT event service is not running");
-    }
     if (authenticator == nullptr)
     {
         throw std::invalid_argument("Authenticator is NULL");
@@ -210,7 +201,12 @@ Callback::Callback(
                     std::placeholders::_2,
                     std::placeholders::_3);
     pImpl->mPostgresClients = std::move(postgresClients);
-//    pImpl->mAQMSClients = aqmsClients;
+    /*
+    for (const auto &client : pImpl->mPostgresClients)
+    {
+        pImpl->mSensors.push_back(client->getSensors());
+    }
+    */
 //    pImpl->mAuthenticator = authenticator;
 }
 
@@ -362,6 +358,49 @@ std::cout << "---------------------------" << std::endl;
     // Go through our clients which are connected to different schemas
     // If the schema has the station let's try it.
     std::vector<UWaveServer::Packet> packets;
+    if (pImpl->mPostgresClients.size() > 1)
+    {
+        bool wasFound{false};
+        for (const auto &postgresClient : pImpl->mPostgresClients)
+        {
+            try
+            {
+                if (postgresClient->contains(network, station,
+                                             channel, locationCode))
+                {
+                    wasFound = true;
+                    packets = postgresClient->query(
+                                 network, station, channel, locationCode,
+                                 startTime, endTime);
+                }
+            }
+            catch (const std::exception &e)
+            {
+                spdlog::error(e.what());
+            }
+            if (wasFound){break;}
+        }
+        if (!wasFound)
+        {
+            spdlog::debug(::toName(network, station, channel, locationCode)
+                        + " not in database");
+        }
+    }
+    else
+    {
+        // This is a little easier - it's just this client
+        try 
+        {
+            packets
+                 = pImpl->mPostgresClients.at(0)->query(
+                       network, station, channel, locationCode,
+                       startTime, endTime);
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::error(e.what());
+        }
+    }
     for (auto &postgresClient : pImpl->mPostgresClients)
     {
         if (postgresClient)

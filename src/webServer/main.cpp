@@ -1,4 +1,5 @@
 #include <iostream>
+#include <set>
 #include <thread>
 #include <vector>
 #include <string>
@@ -19,7 +20,7 @@ struct ProgramOptions
 {
     boost::asio::ip::address address{boost::asio::ip::make_address(DEFAULT_ADDRESS)};
     std::filesystem::path documentRoot{std::filesystem::current_path()}; 
-    std::vector<std::string> schemas{"ynp", "utah"};
+    std::set<std::string> schemas{"ynp", "utah"};
     int nThreads{1};
     unsigned short port{80}; //51};
     bool helpOnly{false};
@@ -40,59 +41,73 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }   
 
-    UWaveServer::Database::Connection::PostgreSQL databaseConnection;
-    try
-    {
-        spdlog::info(
-           "Creating TimeSeriesDB PostgreSQL database read-only connection...");
-        auto user = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_ONLY_USER")};
-        auto password = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")};
-        auto databaseName = std::string {std::getenv("UWAVE_SERVER_DATABASE_NAME")};
-        std::string host="localhost";
-        try
-        {
-            host = std::string {std::getenv("UWAVE_SERVER_DATABASE_HOST")};
-        }
-        catch (...)
-        {
-        }
-        int port = 5432;
-        try
-        {
-            port = std::stoi(std::getenv("UWAVE_SERVER_DATABASE_PORT"));
-        }
-        catch (...)
-        {
-        }
-        databaseConnection.setUser(user);
-        databaseConnection.setPassword(password);
-        databaseConnection.setAddress(host);
-        databaseConnection.setPort(port);
-        databaseConnection.setDatabaseName(databaseName);
-        databaseConnection.setSchema("ynp");
-        databaseConnection.setApplication("uwsWebServer");
-        databaseConnection.connect();
-        spdlog::info("Connected to " + databaseName + " postgresql database!");
-    }
-    catch (const std::exception &e)
-    {
-        spdlog::error(
-            "Failed to create PostgreSQL database connection; failed with "
-          + std::string {e.what()});
-        return EXIT_FAILURE;
-    }
     std::vector<std::unique_ptr<UWaveServer::Database::Client>> postgresClients;
-    try
+    for (auto &schema : programOptions.schemas)
     {
-        auto postgresClient
-            = std::make_unique<UWaveServer::Database::Client>
-              (std::move(databaseConnection));
-        postgresClients.push_back(std::move(postgresClient));
-    }
-    catch (const std::exception &e)
-    {
-        spdlog::error("Failed to initialize client; failed with" + std::string {e.what()});
-        return EXIT_FAILURE;
+        UWaveServer::Database::Connection::PostgreSQL databaseConnection;
+ 
+        try
+        {
+            spdlog::info(
+               "Creating TimeSeriesDB PostgreSQL database read-only connection...");
+            auto user = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_ONLY_USER")};
+            auto password = std::string {std::getenv("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")};
+            auto databaseName = std::string {std::getenv("UWAVE_SERVER_DATABASE_NAME")};
+            std::string host="localhost";
+            try
+            {
+                host = std::string {std::getenv("UWAVE_SERVER_DATABASE_HOST")};
+            }
+            catch (...)
+            {
+            }
+            int port = 5432;
+            try
+            {
+                port = std::stoi(std::getenv("UWAVE_SERVER_DATABASE_PORT"));
+            }
+            catch (...)
+            {
+            }
+            databaseConnection.setUser(user);
+            databaseConnection.setPassword(password);
+            databaseConnection.setAddress(host);
+            databaseConnection.setPort(port);
+            databaseConnection.setDatabaseName(databaseName);
+            if (!schema.empty()){databaseConnection.setSchema(schema);}
+            databaseConnection.setApplication("uwsWebServer");
+            databaseConnection.connect();
+            if (!schema.empty())
+            {
+                spdlog::info("Connected to " + databaseName
+                           + " postgresql database with schema " + schema);
+            }
+            else
+            {
+                spdlog::info("Connected to " + databaseName
+                           + " postgresql database");
+            }
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::error(
+                "Failed to create PostgreSQL database connection; failed with "
+              + std::string {e.what()});
+            return EXIT_FAILURE;
+        }
+        try
+        {
+            auto postgresClient
+                = std::make_unique<UWaveServer::Database::Client>
+                   (std::move(databaseConnection));
+            postgresClients.push_back(std::move(postgresClient));
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::error("Failed to initialize client; failed with "
+                        + std::string {e.what()});
+            return EXIT_FAILURE;
+        }
     }
 /*
 try

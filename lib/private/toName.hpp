@@ -4,6 +4,19 @@
 #include "uWaveServer/packet.hpp"
 namespace
 {
+[[nodiscard]] std::string toName(const std::string &network,
+                                 const std::string &station,
+                                 const std::string &channel,
+                                 const std::string &locationCode)
+{
+    auto name = network + "." + station + "." + channel;
+    if (!locationCode.empty())
+    {    
+        name = name + "." + locationCode;
+    }    
+    return name;
+}
+
 [[nodiscard]] std::string toName(const UWaveServer::Packet &packet)
 {
     auto network = packet.getNetwork();
@@ -16,14 +29,16 @@ namespace
     }
     catch (...)
     {   
-    }   
+    }
+    return ::toName(network, station, channel, locationCode);
+    /*
     auto name = network + "."  + station + "." + channel;
     if (!locationCode.empty())
     {   
         name = name + "." + locationCode;
     }
     return name;
-
+    */
 }
 }
 #endif

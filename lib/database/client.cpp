@@ -17,6 +17,7 @@
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "private/pack.hpp"
+#include "private/toName.hpp"
 
 #define BATCHED_QUERY
 #define PACKET_BASED_SCHEMA
@@ -306,6 +307,7 @@ std::string convertString(const std::string &s)
     return temp;
 }
 
+/*
 std::string toName(const std::string &network,
                    const std::string &station,
                    const std::string &channel,
@@ -327,6 +329,7 @@ std::string toName(const UWaveServer::Packet &packet)
     auto locationCode = packet.getLocationCode();
     return ::toName(network, station, channel, locationCode);
 }
+*/
 
 template<typename T, typename U>
 void fill(const int nFill,
