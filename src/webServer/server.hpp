@@ -249,7 +249,7 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         result.set(boost::beast::http::field::content_type,
                    "text/html");
         result.keep_alive(request.keep_alive());
-        result.body() = "The resource '" + std::string(target)
+        result.body() = "The resource '" + std::string{target}
                       + "' was not found.";
         result.prepare_payload();
         return result;
@@ -258,7 +258,7 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     // Returns a no content response
     const auto noContent = [&request](boost::beast::string_view target)
     {
-        spdlog::debug("No packets found corresponding to request");
+        spdlog::info("No packets found corresponding to request");
         boost::beast::http::response<boost::beast::http::string_body> result
         {
             boost::beast::http::status::no_content,
@@ -272,9 +272,10 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         result.set(boost::beast::http::field::content_type,
                    "text/html");
         result.keep_alive(request.keep_alive());
-        result.body() = "The resource '" + std::string(target)
+        result.body() = "The resource '" + std::string{target}
                       + "' was not found.";
         result.prepare_payload();
+spdlog::info("return me");
         return result;
     };  
 
@@ -303,7 +304,7 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     };
 
     /// Options request for CORS
-    auto optionsHandler = [&request]()
+    const auto optionsHandler = [&request]()
     {
         spdlog::debug("CORS");
         boost::beast::http::response<boost::beast::http::string_body> result
@@ -335,7 +336,7 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
     };
 
     // Returns a server error response
-    auto const serverError = [&request](boost::beast::string_view what)
+    const auto serverError = [&request](boost::beast::string_view what)
     {
         spdlog::info("Server error");
         boost::beast::http::response<boost::beast::http::string_body> result
