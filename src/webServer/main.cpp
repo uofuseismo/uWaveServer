@@ -42,10 +42,9 @@ int main(int argc, char *argv[])
     }   
 
     std::vector<std::unique_ptr<UWaveServer::Database::Client>> postgresClients;
-    for (auto &schema : programOptions.schemas)
+    for (const auto &schema : programOptions.schemas)
     {
         UWaveServer::Database::Connection::PostgreSQL databaseConnection;
- 
         try
         {
             spdlog::info(
