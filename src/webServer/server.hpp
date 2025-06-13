@@ -272,6 +272,7 @@ std::cout << "++++++++++++++++++++++++" << std::endl;
         result.set(boost::beast::http::field::content_type,
                    "text/html");
         result.keep_alive(request.keep_alive());
+spdlog::info(std::string(target));
         result.body() = "The resource '" + std::string{target}
                       + "' was not found.";
         result.prepare_payload();
@@ -381,6 +382,7 @@ spdlog::info("return me");
                 = callback(request.base(),
                            request.body(),
                            request.method());
+spdlog::info("definitely not");
             boost::beast::http::response<boost::beast::http::string_body> result
             {
                 boost::beast::http::status::ok,
