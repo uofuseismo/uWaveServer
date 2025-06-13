@@ -360,6 +360,7 @@ std::cout << "---------------------------" << std::endl;
     std::vector<UWaveServer::Packet> packets;
     if (pImpl->mPostgresClients.size() > 1)
     {
+        auto name = ::toName(network, station, channel, locationCode);
         bool wasFound{false};
         for (const auto &postgresClient : pImpl->mPostgresClients)
         {
@@ -372,12 +373,13 @@ std::cout << "---------------------------" << std::endl;
                     packets = postgresClient->query(
                                  network, station, channel, locationCode,
                                  startTime, endTime);
-                    if (packets.empty()){wasFound = false;} // Can try others
                 }
                 else
                 {
-                    spdlog::info(::toName(network, station, channel, locationCode) + " not in that schema");
+                    spdlog::debug(name + " not in that schema");
                 }
+                // If we got data - get out of here
+                if (!packets.empty()){break;}
             }
             catch (const std::exception &e)
             {
@@ -387,8 +389,7 @@ std::cout << "---------------------------" << std::endl;
         }
         if (!wasFound)
         {
-            spdlog::info(::toName(network, station, channel, locationCode)
-                        + " not in database");
+            spdlog::debug(name + " not in any database");
         }
     }
     else
