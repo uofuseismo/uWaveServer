@@ -419,6 +419,7 @@ std::cout << "---------------------------" << std::endl;
     }
     if (!packets.empty())
     {
+spdlog::info("got stuff");
         if (wantMiniSEED)
         {
             spdlog::info("Packaging result as mseed");
@@ -443,14 +444,15 @@ std::cout << "---------------------------" << std::endl;
         else
         {
             spdlog::info("Packaging result as JSON");
-            auto payload = ::toJSON(packets);
+            auto payload = ::toJSON(packets).dump(-1);
             spdlog::info("Payload size " + std::to_string(payload.size())
                        + " bytes");
-            return std::pair {payload.dump(-1), "application/json"};
+            return std::pair {payload, "application/json"};
         }
     }
     if (nodata == "404")
     {
+spdlog::info(requestString);
         throw NotFoundException("No data for request: " + requestString);
     }
     throw NoContentException("No data for request: " + requestString);
