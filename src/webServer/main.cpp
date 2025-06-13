@@ -19,6 +19,7 @@ struct ProgramOptions
 {
     boost::asio::ip::address address{boost::asio::ip::make_address(DEFAULT_ADDRESS)};
     std::filesystem::path documentRoot{std::filesystem::current_path()}; 
+    std::vector<std::string> schemas{"ynp", "utah"};
     int nThreads{1};
     unsigned short port{80}; //51};
     bool helpOnly{false};
@@ -80,10 +81,13 @@ int main(int argc, char *argv[])
           + std::string {e.what()});
         return EXIT_FAILURE;
     }
-    std::shared_ptr<UWaveServer::Database::Client> postgresClient{nullptr};
+    std::vector<std::unique_ptr<UWaveServer::Database::Client>> postgresClients;
     try
     {
-        postgresClient = std::make_shared<UWaveServer::Database::Client> (std::move(databaseConnection));
+        auto postgresClient
+            = std::make_unique<UWaveServer::Database::Client>
+              (std::move(databaseConnection));
+        postgresClients.push_back(std::move(postgresClient));
     }
     catch (const std::exception &e)
     {
@@ -118,7 +122,7 @@ return EXIT_SUCCESS;
     boost::asio::ssl::context context{boost::asio::ssl::context::tlsv12};
 
 
-    UWaveServer::WebServer::Callback callback{postgresClient};
+    UWaveServer::WebServer::Callback callback{std::move(postgresClients)};
 
     // Create and launch a listening port
     spdlog::info("Launching HTTP listeners...");

@@ -23,7 +23,7 @@
 #include "uWaveServer/database/connection/postgresql.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 
-[[nodiscard]] std::string parseCommandLineOptions(int argc, char *argv[]);
+[[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
 
 namespace
 {       
@@ -289,8 +289,15 @@ public:
     {
         spdlog::info("Thread " + std::to_string(iThread)
                    + " entering database writer");
+
+        auto nowMuSeconds
+           = std::chrono::time_point_cast<std::chrono::microseconds>
+             (std::chrono::high_resolution_clock::now()).time_since_epoch();
+        auto lastLogTime
+            = std::chrono::duration_cast<std::chrono::seconds> (nowMuSeconds);
+
         const std::chrono::milliseconds mTimeOut{10};
-int printEvery{0};
+//int printEvery{0};
         int nRowsWritten{0};
         double averageTime{0};
         double cumulativeTime{0};
@@ -313,19 +320,31 @@ int printEvery{0};
                     averageTime = averageTime + duration;
                     cumulativeTime = cumulativeTime + duration;
                     nRowsWritten = nRowsWritten + 1; //packet.size();
-                    printEvery = printEvery + 1;
-                    if (printEvery > 1000)
+                    //printEvery = printEvery + 1;
+ 
+                    nowMuSeconds
+                       = std::chrono::time_point_cast<std::chrono::microseconds>
+                         (t2).time_since_epoch();
+                    auto nowSeconds
+                        = std::chrono::duration_cast<std::chrono::seconds>
+                          (nowMuSeconds);
+
+                    //if (printEvery > 1000)
+                    if (nowSeconds >= lastLogTime
+                                    + mLogWritePerformanceInterval)
                     {
-                        spdlog::info("Average packet write time on thread " + std::to_string(iThread) //+ ::toName(packet)
-                                   + " took: "
-                                   + std::to_string (averageTime/printEvery)
+                        spdlog::info(std::to_string(nRowsWritten)
+                                   + " packets written on thread " + std::to_string(iThread) 
+                                   + ".  Average packet write time took "
+                                   + std::to_string (averageTime/nRowsWritten)
                                    + " seconds.  ("
                                    + std::to_string(static_cast<int> (std::round(nRowsWritten/cumulativeTime)))
                                    + " rows/second)" );
-                        printEvery = 0;
+                        //printEvery = 0;
                         averageTime = 0;
                         nRowsWritten = 0;
                         cumulativeTime = 0;
+                        lastLogTime = nowSeconds;
                     }
                 }
                 catch (const std::exception &e)
@@ -530,6 +549,7 @@ int printEvery{0};
     std::vector<std::thread> mDatabaseWriterThreads;
     std::vector<std::pair<int, double>> mWriterThroughPut;
     std::thread mShallowPacketSanitizerThread;
+    std::chrono::seconds mLogWritePerformanceInterval{3600};
     std::chrono::seconds mMaximumLatency{-1};
     std::atomic<bool> mRunning{true};
     bool mStopRequested{false};
@@ -543,7 +563,9 @@ int main(int argc, char *argv[])
     std::string iniFile;
     try
     {
-        iniFile = parseCommandLineOptions(argc, argv);
+        auto [iniFileName, isHelp] = parseCommandLineOptions(argc, argv);
+        if (isHelp){return EXIT_SUCCESS;}
+        iniFile = iniFileName;
     }
     catch (const std::exception &e)
     {    
@@ -595,7 +617,7 @@ int main(int argc, char *argv[])
 ///                            Utility Functions                             ///
 ///--------------------------------------------------------------------------///
 /// Read the program options from the command line
-std::string parseCommandLineOptions(int argc, char *argv[])
+std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[])
 {
     std::string iniFile;
     boost::program_options::options_description desc(R"""(
@@ -616,7 +638,7 @@ Allowed options)""");
     if (vm.count("help"))
     {    
         std::cout << desc << std::endl;
-        return iniFile;
+        return {iniFile, true};
     }
     if (vm.count("ini"))
     {    
@@ -626,8 +648,8 @@ Allowed options)""");
             throw std::runtime_error("Initialization file: " + iniFile
                                    + " does not exist");
         }
-    }    
-    return iniFile;
+    }
+    return {iniFile, false};
 }
 
 [[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions

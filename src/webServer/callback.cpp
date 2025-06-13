@@ -160,7 +160,7 @@ public:
                   > &,
                   const std::string &,
                   const boost::beast::http::verb)> mCallbackFunction;
-    std::shared_ptr<UWaveServer::Database::Client> mPostgresClient{nullptr};
+    std::vector<std::unique_ptr<UWaveServer::Database::Client>> mPostgresClients;
 /*
     std::shared_ptr<
        std::map<std::string, std::unique_ptr<CCTService::AQMSPostgresClient>>
@@ -172,7 +172,7 @@ public:
 
 /// @brief Constructor.
 Callback::Callback(
-    std::shared_ptr<UWaveServer::Database::Client> &postgresClient
+    std::vector<std::unique_ptr<UWaveServer::Database::Client>> &&postgresClients
 /*
     std::shared_ptr<
        std::map<std::string, std::unique_ptr<CCTService::AQMSPostgresClient>>
@@ -182,9 +182,16 @@ Callback::Callback(
     ) :
     pImpl(std::make_unique<CallbackImpl> ())
 {
-    if (postgresClient == nullptr)
+    if (postgresClients.empty())
     {
-        throw std::invalid_argument("Postgres client is NULL");
+        throw std::invalid_argument("No postgres clients set");
+    }
+    for (auto &client : postgresClients)
+    {
+        if (client == nullptr)
+        {
+            throw std::invalid_argument("Postgres client is NULL");
+        }
     }
 /*
     if (!cctEventsService->isRunning())
@@ -202,7 +209,7 @@ Callback::Callback(
                     std::placeholders::_1,
                     std::placeholders::_2,
                     std::placeholders::_3);
-    pImpl->mPostgresClient = postgresClient;
+    pImpl->mPostgresClients = std::move(postgresClients);
 //    pImpl->mAQMSClients = aqmsClients;
 //    pImpl->mAuthenticator = authenticator;
 }
@@ -352,16 +359,22 @@ std::cout << "---------------------------" << std::endl;
     spdlog::info("Querying: " + loggingName
                + " from time " + std::to_string(startTime)
                + " to " + std::to_string(endTime));
+    // Go through our clients which are connected to different schemas
+    // If the schema has the station let's try it.
     std::vector<UWaveServer::Packet> packets;
-    if (pImpl->mPostgresClient)
+    for (auto &postgresClient : pImpl->mPostgresClients)
     {
-        try
+        if (postgresClient)
         {
-            packets = pImpl->mPostgresClient->query(network, station, channel, locationCode, startTime, endTime);
-        }
-        catch (const std::exception &e)
-        {
-            spdlog::error(e.what());
+            try
+            {
+                packets = postgresClient->query(network, station, channel, locationCode,
+                                                startTime, endTime);
+            }
+            catch (const std::exception &e)
+            {
+                spdlog::error(e.what());
+            }
         }
     }
     if (!packets.empty())

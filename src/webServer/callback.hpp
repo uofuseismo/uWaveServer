@@ -1,5 +1,6 @@
 #ifndef UWAVE_SERVER_WEB_SERVER_CALLBACK_HPP
 #define UWAVE_SERVER_WEB_SERVER_CALLBACK_HPP
+#include <vector>
 #include <string>
 #include <memory>
 #include <map>
@@ -27,9 +28,7 @@ class Callback
 public:
     Callback() = delete;
     /// @brief Constructor.
-    /// @param[in] cctService      The database service.
-    /// @param[in] authenticator   The authenticator.
-    Callback(std::shared_ptr<UWaveServer::Database::Client> &postgresClient);
+    explicit Callback(std::vector<std::unique_ptr<UWaveServer::Database::Client>> &&postgresClient);
 /*
              std::shared_ptr<
                 std::map<std::string, std::unique_ptr<CCTService::AQMSPostgresClient>>

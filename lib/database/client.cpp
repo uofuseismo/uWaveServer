@@ -377,6 +377,39 @@ public:
         return sequenceValue;
     }
 */
+    [[nodiscard]] std::set<std::string> getSensors() const
+    {
+        // Ensure we're connected
+        if (!mConnection.isConnected())
+        {
+            spdlog::info("In getSensors; attempting to reconnect...");
+            mConnection.reconnect();
+            if (!mConnection.isConnected())
+            {
+                throw std::runtime_error("Could not connect to timescaledb database!");
+            }
+        }
+        auto session
+            = reinterpret_cast<soci::session *> (mConnection.getSession());
+        std::vector<std::string> networks;
+        std::vector<std::string> stations;
+        std::vector<std::string> channels;
+        std::vector<std::string> locationCodes;
+        *session <<
+            "SELECT COALESCE( (SELECT identifier FROM sensors WHERE network = :network AND station = :station AND channel = :channel AND location_code = :locationCode), -1)",
+            soci::use(networks),
+            soci::use(stations),
+            soci::use(channels),
+            soci::use(locationCodes);
+        std::set<std::string> result;
+        for (int i = 0; i < networks.size(); ++i)
+        {
+            auto name = ::toName(networks[i], stations[i],
+                                  channels[i], locationCodes[i]);
+            if (!result.contains(name)){result.insert(name);}
+        }  
+        return result;
+    }
     [[nodiscard]] int getSensorIdentifier(const std::string &network,
                                           const std::string &station,
                                           const std::string &channel,
@@ -484,6 +517,29 @@ public:
             spdlog::debug(std::to_string(mSensorIdentifiers.size())
                         + " sensors in map");
         }
+    }
+    bool contains(const std::string &network,
+                  const std::string &station,
+                  const std::string &channel,
+                  const std::string &locationCode) const
+    {
+        // Ensure we're connected
+        if (!mConnection.isConnected())
+        {
+            spdlog::info("In contains; attempting to reconnect...");
+            mConnection.reconnect();
+            if (!mConnection.isConnected())
+            {
+                throw std::runtime_error("Could not connect to timescaledb database!");
+            }   
+        }   
+        // Check the sensor is there
+        constexpr bool addIfNotExists{false};
+        auto sensorIdentifier
+            = getSensorIdentifier(network, station, channel,
+                                  locationCode, addIfNotExists); // Throws
+        if (sensorIdentifier < 0){return false;}
+        return true;
     }
     std::vector<Packet> query(const std::string &network,
                               const std::string &station,
@@ -1057,6 +1113,30 @@ void Client::write(const UWaveServer::Packet &packet)
     pImpl->insert(packet);
 }
 
+bool Client::contains(const std::string &networkIn,
+                      const std::string &stationIn,
+                      const std::string &channelIn,
+                      const std::string &locationCodeIn) const
+{
+    auto network = ::convertString(networkIn);
+    if (network.empty())
+    {
+        throw std::invalid_argument("Network is empty");
+    }
+    auto station = ::convertString(stationIn);
+    if (station.empty())
+    {
+        throw std::invalid_argument("Station is empty");
+    }
+    auto channel = ::convertString(channelIn);
+    if (channel.empty())
+    {
+        throw std::invalid_argument("Channel is empty");
+    }
+    auto locationCode = ::convertString(locationCodeIn);
+    return pImpl->contains(network, station, channel, locationCode);
+}
+
 std::vector<UWaveServer::Packet> Client::query(
     const std::string &networkIn,
     const std::string &stationIn,
@@ -1086,4 +1166,9 @@ std::vector<UWaveServer::Packet> Client::query(
     }
     auto locationCode = ::convertString(locationCodeIn);
     return pImpl->query(network, station, channel, locationCode, startTime, endTime); 
+}
+
+std::set<std::string> Client::getSensors() const
+{
+    return pImpl->getSensors();
 }

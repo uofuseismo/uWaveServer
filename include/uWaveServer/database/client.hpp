@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <set>
 namespace UWaveServer
 {
  class Packet;
@@ -20,6 +21,7 @@ class Client
 public:
     /// @brief Constructs the client from the given postgres connection.
     explicit Client(Connection::PostgreSQL &&connection);
+
     /// @brief Writes a packet to the database.
     /// @param[in] packet  A data packet with a network, station, channel,
     ///                    and location code as well as a start time, end time,
@@ -28,6 +30,13 @@ public:
     /// @throws std::runtime_error if there is another error while writing
     ///         the data.
     void write(const UWaveServer::Packet &packet);
+
+    /// @result True indicates the network, station, channel, and locationCode
+    ///         packets are in the database.
+    [[nodiscard]] bool contains(const std::string &network,
+                                const std::string &station,
+                                const std::string &channel,
+                                const std::string &locationCode) const;
     [[nodiscard]] std::vector<UWaveServer::Packet>
          query(const std::string &network,
                const std::string &staiton,
@@ -35,6 +44,8 @@ public:
                const std::string &locationCode,
                const double startTime,
                const double endTime) const;
+    /// @result Get most up-to-date list of sensors in the database.
+    [[nodiscard]] std::set<std::string> getSensors() const;
     
     /// @brief (Re)Establishes a connection.
     void connect();
