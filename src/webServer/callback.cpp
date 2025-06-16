@@ -379,7 +379,7 @@ std::cout << "---------------------------" << std::endl;
                     spdlog::debug(name + " not in that schema");
                 }
                 // If we got data - get out of here
-                if (!packets.empty()){break;}
+                if (!packets.empty() && wasFound){break;}
             }
             catch (const std::exception &e)
             {
@@ -407,6 +407,7 @@ std::cout << "---------------------------" << std::endl;
             spdlog::error(e.what());
         }
     }
+    /*
     for (auto &postgresClient : pImpl->mPostgresClients)
     {
         if (postgresClient)
@@ -422,6 +423,7 @@ std::cout << "---------------------------" << std::endl;
             }
         }
     }
+    */
     if (!packets.empty())
     {
         if (wantMiniSEED)

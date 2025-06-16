@@ -467,6 +467,7 @@ public:
             std::scoped_lock lock(mMutex);
             mSensorIdentifiers.insert(std::pair {name, identifier}); 
             }
+            spdlog::info("Added sensor " + name);
         }
         return identifier; 
     }
@@ -573,7 +574,7 @@ public:
         if (sensorIdentifier < 0)
         {
             throw std::invalid_argument(
-                "Could not obtain sensor identifier for "
+                "Could not obtain sensor identifier in query for "
                + ::toName(network, station, channel, locationCode));
         }
         // Time to work
@@ -833,7 +834,8 @@ public:
         auto sensorIdentifier = getSensorIdentifier(packet, addIfNotExists); // Throws
         if (sensorIdentifier < 0) 
         {
-            throw std::runtime_error("Could not obtain sensor identifier");
+            throw std::runtime_error(
+               "Could not obtain sensor identifier in insert");
         }
         // Okay, let's get to work
         auto session
