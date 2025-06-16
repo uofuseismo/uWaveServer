@@ -94,8 +94,8 @@ struct ProgramOptions
     std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
     std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
     std::string databaseName{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};
-    std::string databaseHost{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST")};
-    std::string databaseSchema{"ynp"};//::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA")};
+    std::string databaseHost{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")};
+    std::string databaseSchema{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "")};
     int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
     int mQueueCapacity{8092}; // Want this big enough but not too big
     int mDatabaseWriterThreads{4};  
@@ -138,6 +138,8 @@ public:
                                             + "-" + std::to_string(iThread));
             if (!options.databaseSchema.empty())
             {
+                spdlog::info("Will connect to schema "
+                           + options.databaseSchema);
                 databaseConnection.setSchema(options.databaseSchema);
             }
             databaseConnection.connect(); 
@@ -753,6 +755,41 @@ ProgramOptions parseIniFile(const std::string &iniFile)
         throw std::invalid_argument(
             "Number of database threads must be between 1 and 2048");
     }
+
+    // Database
+    options.databaseUser
+        = propertyTree.get<std::string> ("Database.user", 
+                                         options.databaseUser);
+    if (options.databaseUser.empty())
+    {
+        throw std::invalid_argument("Must specify database user as UWAVE_SERVER_DATABASE_READ_WRITE_USER or as Database.user in ini file");
+    }
+    options.databasePassword
+        = propertyTree.get<std::string> ("Database.password",
+                                         options.databasePassword);
+    if (options.databasePassword.empty())
+    {
+        throw std::invalid_argument("Must specify database password as UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD or as Database.password in ini file");
+    }
+    options.databaseName
+        = propertyTree.get<std::string> ("Database.name",
+                                         options.databaseName);
+    if (options.databaseName.empty())
+    {
+        throw std::invalid_argument("Must specify database name as UWAVE_SERVER_DATABASE_NAME or as Database.name in ini file");
+    }
+    options.databaseHost
+        = propertyTree.get<std::string> ("Database.host",
+                                         options.databaseHost);
+    if (options.databaseHost.empty())
+    {
+        throw std::invalid_argument("Must specify database hot as UWAVE_SERVER_DATABASE_HOST or as Database.htos in ini file");
+    }
+    options.databasePort
+        = propertyTree.get<int> ("Database.port", options.databasePort);
+   
+    options.databaseSchema
+        = propertyTree.get<std::string> ("Database.schema", "");
 
     UWaveServer::PacketSanitizerOptions packetSanitizerOptions; 
     // Realistically, anything older than 2 -4 weeks isn't making it back
