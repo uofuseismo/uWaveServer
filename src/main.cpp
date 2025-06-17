@@ -248,7 +248,11 @@ public:
                 // Handle duplicate data
                 try
                 {
-                    if (allow){allow = mTestShallowDuplicatePacket.allow(packet);}
+                    if (allow &&
+                        static_cast<int> (mDataAcquisitionClients.size()) > 1)
+                    {
+                        allow = mTestShallowDuplicatePacket.allow(packet);
+                    }
                     if (allow){allow = mTestDeepDuplicatePacket.allow(packet);}
                 }
                 catch (const std::exception &e)
