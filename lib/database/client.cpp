@@ -128,7 +128,7 @@ UWaveServer::Packet
     return packet;
 }
 
-
+/*
 UWaveServer::Packet
     queryRowToPacket(const double queryStartTime,
                      const double queryEndTime,
@@ -187,6 +187,7 @@ UWaveServer::Packet
     }
     return packet;
 }
+*/
 
 std::vector<UWaveServer::Packet>
     queryRowsToPackets(const double queryStartTime,
@@ -218,7 +219,7 @@ std::vector<UWaveServer::Packet>
     {
         try
         {
-            //std::cout << std::setprecision(16) << queryStartTime << " " << packetStartTimes[i] << queryEndTime << std::endl;
+            //std::cout << std::setprecision(16) << queryStartTime << " " << packetStartTimes[i] << " " << queryEndTime << std::endl;
             auto packet = ::queryRowToPacket(queryStartTime,
                                              queryEndTime,
                                              network,
@@ -248,6 +249,7 @@ std::vector<UWaveServer::Packet>
     return result;
 }
 
+/*
 std::vector<UWaveServer::Packet> 
     queryRowsToPackets(const double queryStartTime,
                        const double queryEndTime,
@@ -295,6 +297,7 @@ std::vector<UWaveServer::Packet>
               });
     return result;
 }
+*/
 
 /// @brief Converts an input string to an upper-case string with no blanks.
 /// @param[in] s  The string to convert.
@@ -548,6 +551,8 @@ public:
         }
         return true;
     }
+    // Get the packets from disk
+    [[nodiscard]]
     std::vector<Packet> query(const std::string &network,
                               const std::string &station,
                               const std::string &channel,
@@ -647,6 +652,8 @@ public:
             packetByteArrays.resize(batchSize);
         }
   #else // BYTEA
+        assert(false);
+/*
         std::vector<double> packetStartTimes(batchSize);
         std::vector<double> samplingRates(batchSize);
         std::vector<std::string> stringDatas(batchSize);
@@ -677,6 +684,7 @@ public:
             samplingRates.resize(batchSize);
             stringDatas.resize(batchSize);
         }
+*/
   #endif
   #ifndef NDEBUG
         auto queryTimeEnd = std::chrono::high_resolution_clock::now();
@@ -703,6 +711,8 @@ public:
                                       allPacketByteArrays,
                                       mSwapBytes);
   #else
+        assert(false);
+/*
         result = ::queryRowsToPackets(startTime,
                                       endTime,
                                       network,
@@ -712,6 +722,7 @@ public:
                                       allPacketStartTimes,
                                       allSamplingRates,
                                       allStringDatas);
+*/
   #endif
   #ifndef NDEBUG
         auto unpackTimeEnd = std::chrono::high_resolution_clock::now();
@@ -723,6 +734,8 @@ public:
 
   #endif
 #else // not batched query
+        assert(false);
+/*
         double packetStartTime{0};
         double samplingRate{0};
         //int64_t packetNumber{0};
@@ -808,6 +821,7 @@ public:
         spdlog::info("Unpack time was  "
                     + std::to_string(unpackDuration) + " (s)");
 #endif
+*/
 #endif
         return result;
     }
