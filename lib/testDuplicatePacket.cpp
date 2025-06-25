@@ -259,14 +259,16 @@ public:
                 (header.endTime >= streamHeader.startTime &&
                  header.endTime <= streamHeader.endTime))
             {
+                //std::cout << std::setprecision(16) << header.name << " " << streamHeader.name << " | " << header.startTime.count()*1.e-6 << " " << streamHeader.startTime.count()*1.e-6 << " | " 
+                //<< header.endTime.count()*1.e-6 << " " << streamHeader.endTime.count()*1.e-6 << std::endl;
                 if (mLogBadData)
                 {
-                    spdlog::debug("Detected possible timing slip for: "
-                                 + header.name);
+                    spdlog::info("Detected possible timing slip for: "
+                               + header.name);
                     {
                     std::lock_guard<std::mutex> lockGuard(mMutex);
                     if (!mBadTimingChannels.contains(header.name))
-                    {   
+                    {
                         mBadTimingChannels.insert(header.name);
                     }
                     }

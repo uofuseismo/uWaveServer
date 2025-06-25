@@ -229,7 +229,7 @@ public:
         mDoubleData.clear();
         mDataType = Packet::DataType::Unknown;
     }
-    void setData(const std::vector<int> &&data)
+    void setData(std::vector<int> &&data)
     {
         if (data.empty()){return;}
         clearData();
@@ -237,7 +237,7 @@ public:
         mDataType = Packet::DataType::Integer32;
         updateEndTime();
     }
-    void setData(const std::vector<float> &&data)
+    void setData(std::vector<float> &&data)
     {   
         if (data.empty()){return;}
         clearData();
@@ -245,7 +245,7 @@ public:
         mDataType = Packet::DataType::Float;
         updateEndTime();
     }
-    void setData(const std::vector<double> &&data)
+    void setData(std::vector<double> &&data)
     {   
         if (data.empty()){return;}
         clearData();
@@ -253,7 +253,7 @@ public:
         mDataType = Packet::DataType::Double;
         updateEndTime();
     }
-    void setData(const std::vector<int64_t> &&data)
+    void setData(std::vector<int64_t> &&data)
     {   
         if (data.empty()){return;}
         clearData();
