@@ -23,112 +23,129 @@ namespace
 {
 /// @brief Unpacks a miniSEED record.
 [[nodiscard]]
-UWaveServer::Packet
-    miniSEEDToDataPacket(char *msRecord, const int bufferSize)
+std::vector<UWaveServer::Packet>
+    miniSEEDToDataPackets(char *msRecord, const int bufferSize)
     //                     const int seedLinkRecordSize = 512)
 {
-    UWaveServer::Packet dataPacket;
-    constexpr int8_t verbose{0};
-    constexpr uint32_t flags{MSF_UNPACKDATA};
-    MS3Record *miniSEEDRecord{nullptr};
-    auto returnValue = msr3_parse(msRecord, bufferSize, //seedLinkRecordSize,
-                                  &miniSEEDRecord, flags,
-                                  verbose);
-    if (returnValue == 0)
-    {   
-        // SNCL
-        std::array<char, 64> networkWork;
-        std::array<char, 64> stationWork;
-        std::array<char, 64> channelWork;
-        std::array<char, 64> locationWork;
-        std::fill(networkWork.begin(),  networkWork.end(), '\0');
-        std::fill(stationWork.begin(),  stationWork.end(), '\0');
-        std::fill(channelWork.begin(),  channelWork.end(), '\0'); 
-        std::fill(locationWork.begin(), locationWork.end(), '\0');
+    std::vector<UWaveServer::Packet> dataPackets;
+    auto bufferLength = static_cast<uint64_t> (bufferSize);
+    uint64_t offset{0};
+    while (bufferLength - offset > MINRECLEN)
+    {
+        constexpr int8_t verbose{0};
+        constexpr uint32_t flags{MSF_UNPACKDATA};
+        UWaveServer::Packet dataPacket;
+        MS3Record *miniSEEDRecord{nullptr};
+        auto returnCode = msr3_parse(msRecord + offset,
+                                     static_cast<uint64_t> (bufferSize) - offset, // bufferSize, //seedLinkRecordSize,
+                                     &miniSEEDRecord, flags,
+                                     verbose);
+        if (returnCode == MS_NOERROR && miniSEEDRecord)
+        {   
+            // SNCL
+            std::array<char, 64> networkWork;
+            std::array<char, 64> stationWork;
+            std::array<char, 64> channelWork;
+            std::array<char, 64> locationWork;
+            std::fill(networkWork.begin(),  networkWork.end(), '\0');
+            std::fill(stationWork.begin(),  stationWork.end(), '\0');
+            std::fill(channelWork.begin(),  channelWork.end(), '\0'); 
+            std::fill(locationWork.begin(), locationWork.end(), '\0');
 #ifdef USE_MS_VERSION_315
-        returnValue = ms_sid2nslc_n(miniSEEDRecord->sid,
-                                    networkWork.data(), networkWork.size(),
-                                    stationWork.data(), stationWork.size(),
-                                    locationWork.data(), locationWork.size(),
-                                    channelWork.data(), channelWork.size());
+            returnCode = ms_sid2nslc_n(miniSEEDRecord->sid,
+                                       networkWork.data(), networkWork.size(),
+                                       stationWork.data(), stationWork.size(),
+                                       locationWork.data(), locationWork.size(),
+                                       channelWork.data(), channelWork.size());
 #else
-        returnValue = ms_sid2nslc(miniSEEDRecord->sid,
-                                  networkWork.data(), stationWork.data(),
-                                  locationWork.data(), channelWork.data());
+            returnCode = ms_sid2nslc(miniSEEDRecord->sid,
+                                     networkWork.data(), stationWork.data(),
+                                     locationWork.data(), channelWork.data());
 #endif
-        std::string network{networkWork.data()};
-        std::string station{stationWork.data()};
-        std::string channel{channelWork.data()};
-        std::string location{locationWork.data()};
-        if (locationWork[0] == '\0'){location = "--";}
-        if (std::string {"  "} == location.substr(0, 2)){location = "--";}
-        if (returnValue == 0)
-        {
-            dataPacket.setNetwork(network);
-            dataPacket.setStation(station);
-            dataPacket.setChannel(channel);
-            dataPacket.setLocationCode(location);
-        }
-        else
-        {
-            msr3_free(&miniSEEDRecord);
-            throw std::runtime_error("Failed to unpack SNCL");
-        }
-        // Sampling rate
-        dataPacket.setSamplingRate(miniSEEDRecord->samprate);
-        // Start time (convert from nanoseconds to microseconds)
-        std::chrono::microseconds startTime
-        {
-            static_cast<int64_t> (std::round(miniSEEDRecord->starttime*1.e-3))
-        };
-        dataPacket.setStartTime(startTime);
-        // Data
-        auto nSamples = static_cast<int> (miniSEEDRecord->numsamples);
-        if (nSamples > 0)
-        {
-            if (miniSEEDRecord->sampletype == 'i')
+            std::string network{networkWork.data()};
+            std::string station{stationWork.data()};
+            std::string channel{channelWork.data()};
+            std::string location{locationWork.data()};
+            if (locationWork[0] == '\0'){location = "--";}
+            if (std::string {"  "} == location.substr(0, 2)){location = "--";}
+            if (returnCode == MS_NOERROR)
             {
-                const auto data
-                    = reinterpret_cast<const int *>
-                      (miniSEEDRecord->datasamples);
-                dataPacket.setData(nSamples, data);
-            }
-            else if (miniSEEDRecord->sampletype == 'f')
-            {
-                const auto data
-                    = reinterpret_cast<const float *>
-                      (miniSEEDRecord->datasamples);
-                dataPacket.setData(nSamples, data);
-            }
-            else if (miniSEEDRecord->sampletype == 'd')
-            {
-                const auto data
-                    = reinterpret_cast<const double *>
-                      (miniSEEDRecord->datasamples);
-                dataPacket.setData(nSamples, data);
+                dataPacket.setNetwork(network);
+                dataPacket.setStation(station);
+                dataPacket.setChannel(channel);
+                dataPacket.setLocationCode(location);
             }
             else
             {
                 msr3_free(&miniSEEDRecord);
-                throw std::runtime_error("Unhandled sample type");
+                throw std::runtime_error("Failed to unpack SNCL");
             }
-        }
-    }
-    else
-    {
-        if (returnValue < 0)
-        {
+            // Sampling rate
+            dataPacket.setSamplingRate(miniSEEDRecord->samprate);
+            // Start time (convert from nanoseconds to microseconds)
+            std::chrono::microseconds startTime
+            {
+                static_cast<int64_t> 
+                    (std::round(miniSEEDRecord->starttime*1.e-3))
+            };
+            dataPacket.setStartTime(startTime);
+            // Data
+            auto nSamples = static_cast<int> (miniSEEDRecord->numsamples);
+            if (nSamples > 0)
+            {
+                if (miniSEEDRecord->sampletype == 'i')
+                {
+                    const auto data
+                        = reinterpret_cast<const int *>
+                          (miniSEEDRecord->datasamples);
+                    dataPacket.setData(nSamples, data);
+                }
+                else if (miniSEEDRecord->sampletype == 'f')
+                {
+                    const auto data
+                       = reinterpret_cast<const float *>
+                          (miniSEEDRecord->datasamples);
+                    dataPacket.setData(nSamples, data);
+                }
+                else if (miniSEEDRecord->sampletype == 'd')
+                {
+                    const auto data
+                        = reinterpret_cast<const double *>
+                          (miniSEEDRecord->datasamples);
+                    dataPacket.setData(nSamples, data);
+                }
+                else
+                {
+                    msr3_free(&miniSEEDRecord);
+                    throw std::runtime_error("Unhandled sample type");
+                }
+            } // End check on nSamples
+            dataPackets.push_back(std::move(dataPacket));
+            offset = offset + miniSEEDRecord->reclen;
             msr3_free(&miniSEEDRecord);
-            throw std::runtime_error("libmseed error detected");
         }
-        msr3_free(&miniSEEDRecord);
-        throw std::runtime_error(
-             "Insufficient data.  Number of additional bytes estimated is "
-            + std::to_string(returnValue));
+        else
+        {
+            if (returnCode != MS_NOERROR)
+            {
+                if (miniSEEDRecord){msr3_free(&miniSEEDRecord);}
+                throw std::runtime_error("libmseed error detected");
+            }
+            msr3_free(&miniSEEDRecord);
+            throw std::runtime_error(
+                 "Insufficient data.  Number of additional bytes estimated is "
+                + std::to_string(returnCode));
+        }
     }
-    // Cleanup and leave
-    msr3_free(&miniSEEDRecord);
-    return dataPacket;
+    if (dataPackets.size() > 1)
+    {
+        spdlog::warn("Multiple mseed packets received");
+    }
+    else if (dataPackets.empty())
+    {
+        spdlog::warn("No mseed packets unpacked");
+    } 
+    return dataPackets;
 }
 
 }
@@ -227,8 +244,7 @@ public:
         spdlog::debug("Thread entering SEEDLink polling loop...");
         while (mKeepRunning)
         {
-            // Block until a packet is received.  In this case, an external
-            // thread can terminate the broadcast in which case, we quit.
+            // Attempt to collect data but then immediately return.
             auto returnValue = sl_collect(mSEEDLinkConnection,
                                           &seedLinkPacketInfo,
                                           seedLinkBuffer.data(),
@@ -244,10 +260,13 @@ public:
                     auto payloadLength = seedLinkPacketInfo->payloadlength;
                     try
                     {
-                        auto packet
-                            = ::miniSEEDToDataPacket(seedLinkBuffer.data(),
-                                                     payloadLength);
-                        mAddPacketFunction(std::move(packet));
+                        auto packets
+                            = ::miniSEEDToDataPackets(seedLinkBuffer.data(),
+                                                      payloadLength);
+                        for (auto &packet : packets)
+                        {
+                            mAddPacketFunction(std::move(packet));
+                        }
                     }
                     catch (const std::exception &e)
                     {
@@ -411,7 +430,7 @@ public:
             spdlog::warn("Failed to set reconnect delay");
         }
         // Check this worked
-/*
+#ifndef NDEBUG
         std::string slSite(512, '\0');
         std::string slServerID(512, '\0');
         auto returnCode = sl_ping(mSEEDLinkConnection,
@@ -434,7 +453,7 @@ public:
             spdlog::info("SEEDLink ping successfully returned server "
                        + slServerID + " (site " + slSite + " )");
         }
-*/
+#endif
         // All-good
         mOptions = options;
         mInitialized = true;

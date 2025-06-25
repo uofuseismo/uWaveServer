@@ -388,12 +388,13 @@ public:
         // Ensure we're connected
         if (!mConnection.isConnected())
         {
-            spdlog::info("In getSensors; attempting to reconnect...");
+            spdlog::info("Attempting to reconnect prior to getting sensors...");
             mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
+            spdlog::info("Successfully reconnected prior to getting sensors");
         }
         auto session
             = reinterpret_cast<soci::session *> (mConnection.getSession());
@@ -533,12 +534,14 @@ public:
         // Ensure we're connected
         if (!mConnection.isConnected())
         {
-            spdlog::info("In contains; attempting to reconnect...");
+            spdlog::debug(
+                "Attempting to reconnect prior to checking if sensor exists..");
             mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
-            }   
+            }
+            spdlog::info("Successfully reconnected to database in contains");
         }   
         // Check the sensor is there
         constexpr bool addIfNotExists{false};
@@ -564,12 +567,13 @@ public:
         // Ensure we're connected
         if (!mConnection.isConnected())
         {
-            spdlog::info("In query; attempting to reconnect...");
+            spdlog::info("Attempting to reconnect prior to query...");
             mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
+            spdlog::info("Successfully reconnected prior to query");
         }
         // Check the sensor is there
         constexpr bool addIfNotExists{false};
@@ -836,12 +840,13 @@ public:
         // Ensure we're connected
         if (!mConnection.isConnected())
         {
-            spdlog::info("In insert; attempting to reconnect...");
+            spdlog::info("Attempting to reconnect prior to insert...");
             mConnection.reconnect();
             if (!mConnection.isConnected())
             {
                 throw std::runtime_error("Could not connect to timescaledb database!");
             }
+            spdlog::info("Successfully reconnected prior to insert");
         }
         // Get the sensor identifier
         constexpr bool addIfNotExists{true};
