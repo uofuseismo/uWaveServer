@@ -46,6 +46,7 @@ public:
     void setCallback(const std::function<void (std::vector<Packet> &&packets)> &callback) noexcept;
     /// @brief Adds the packets.
     virtual void addPackets(std::vector<Packet> &&packets);
+    /// @brief Adds a packet.
     virtual void addPacket(Packet &&packet);
 private:
     class IDataClientImpl;
