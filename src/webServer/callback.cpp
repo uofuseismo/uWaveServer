@@ -407,23 +407,13 @@ std::cout << "---------------------------" << std::endl;
             spdlog::error(e.what());
         }
     }
-    /*
-    for (auto &postgresClient : pImpl->mPostgresClients)
-    {
-        if (postgresClient)
-        {
-            try
-            {
-                packets = postgresClient->query(network, station, channel, locationCode,
-                                                startTime, endTime);
-            }
-            catch (const std::exception &e)
-            {
-                spdlog::error(e.what());
-            }
-        }
-    }
-    */
+/*
+std::cout << packets.size() << std::endl;
+for (const auto &p : packets)
+{
+ std::cout << std::setprecision(15) << p.getStartTime().count()*1.e-6 << " " << p.getEndTime().count()*1.e-6 << std::endl;
+}
+*/
     if (!packets.empty())
     {
         if (wantMiniSEED)
