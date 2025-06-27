@@ -265,7 +265,15 @@ public:
                                                       payloadLength);
                         for (auto &packet : packets)
                         {
-                            mAddPacketFunction(std::move(packet));
+                            try
+                            {
+                                mAddPacketFunction(std::move(packet));
+                            }
+                            catch (const std::exception &e)
+                            {
+                                spdlog::warn("Failed to add packet to callback "
+                                           + std::string {e.what()});
+                            }
                         }
                     }
                     catch (const std::exception &e)
