@@ -60,7 +60,7 @@ set(LIBRARY_SRC
     lib/version.cpp
     lib/database/client.cpp
     lib/database/connection/postgresql.cpp)
-if (${SEEDLINK_FOUND})
+if (${SEEDLink_FOUND})
    message("Using SEEDLink")
    set(LIBRARY_SRC ${LIBRARY_SRC}
        lib/dataClient/seedLink.cpp
@@ -89,19 +89,17 @@ else()
 endif()
 target_link_libraries(uWaveServer
                       PUBLIC nlohmann_json::nlohmann_json SOCI::Core SOCI::PostgreSQL
-                      PRIVATE spdlog::spdlog ${MINISEED_LIBRARY})
+                      PRIVATE spdlog::spdlog MiniSEED::MiniSEED)
 target_include_directories(uWaveServer
-                           PRIVATE ${MINISEED_INCLUDE_DIR} #${PostgreSQL_INCLUDE_DIRS}
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                            PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>
                            PUBLIC $<INSTALL_INTERFACE:include>)
-if (${SEEDLINK_FOUND})
-   target_link_libraries(uWaveServer PRIVATE ${SEEDLINK_LIBRARY})
-   target_include_directories(uWaveServer PRIVATE ${SEEDLINK_INCLUDE_DIR})
+if (${SEEDLink_FOUND})
+   target_link_libraries(uWaveServer PRIVATE SEEDLink::SEEDLink)
    target_compile_definitions(uWaveServer PRIVATE WITH_SEEDLINK)
 endif()
-string(COMPARE GREATER_EQUAL ${MINISEED_VERSION} "3.1.5" USE_MS_VERSION_315)
+string(COMPARE GREATER_EQUAL ${MiniSEED_VERSION} "3.1.5" USE_MS_VERSION_315)
 if (USE_MS_VERSION_315)
    message("Using ms_sid2nslc_n")
    target_compile_definitions(uWaveServer PRIVATE USE_MS_VERSION_315)
@@ -142,7 +140,7 @@ target_include_directories(uwsWebServer
 target_link_libraries(uwsWebServer
                       PRIVATE
                       uWaveServer spdlog::spdlog Boost::program_options Boost::url
-                      nlohmann_json::nlohmann_json ${MINISEED_LIBRARY})# SOCI::Core SOCI::PostgreSQL)
+                      nlohmann_json::nlohmann_json MiniSEED::MiniSEED)# SOCI::Core SOCI::PostgreSQL)
 
 if (${Catch2_FOUND})
    message("Found catch")
@@ -156,13 +154,11 @@ if (${Catch2_FOUND})
                          CXX_EXTENSIONS NO)
    target_link_libraries(unitTests PRIVATE
                          Catch2::Catch2 Catch2::Catch2WithMain
-                         uWaveServer spdlog::spdlog ${MINISEED_LIBRARY})
+                         uWaveServer spdlog::spdlog MiniSEED::MiniSEED)
    target_include_directories(unitTests
-                              PRIVATE $<BUILD_INTERFACE:${MINISEED_INCLUDE_DIR}>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
-                              PRIVATE $<BUILD_INTERFACE:${UMPS_INCLUDE_DIR}>)
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>)
    add_test(NAME unitTests 
             COMMAND unitTests)
 endif()
@@ -242,15 +238,29 @@ cpack_add_component(headers
 cpack_add_component(applications
                     DISPLAY_NAME "uWaveServer Applications"
                     DEPENDS libraries)
+set(CPACK_GENERATOR ZIP TGZ)
 if (WIN32)
-    set(CPACK_GENERATOR ZIP WIX)
+   list(APPEND CPACK_GENERATOR WIX)
 elseif (APPLE)
-    set(CPACK_GENERATOR TGZ productbuild)
+   list(APPEND CPACK_GENERATOR productbuild)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    #set(CPACK_GENERATOR TGZ RPM)
-    set(CPACK_GENERATOR TGZ)
+   find_program(RPMBUILD_PROGRAM rpmbuild)
+   if (RPMBUILD_PROGRAM)
+      list(APPEND CPACK_GENERATOR RPM)
+      #set(CPACK_RPM_PACKAGE_REQUIRES "${CPACK_RPM_PACKAGE_REQUIRES abc >= 123")
+   endif()
+   if (${BUILD_FOR_DEBIAN})
+      find_program(DPKG_PROGRAM dpkg REQUIRED)
+   else()
+      find_program(DPKG_PROGRAM dpkg)
+   endif()
+   if (DPKG_PROGRAM)
+      list(APPEND CPACK_GENERATOR DEB)
+      set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}")# libsodium (>= 1.0.20) libzmq (>=4.3.0)")
+      set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON) 
+   endif()
 else()
-    set(CPACK_GENERATOR TGZ)
+   message("Unknown operating system")
 endif()
 set(CPACK_SOURCE_IGNORE_FILES
   /\\.git/
