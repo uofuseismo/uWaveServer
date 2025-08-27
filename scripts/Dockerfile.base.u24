@@ -17,6 +17,7 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get autoremove -y &&\
     apt-get autoclean -y &&\
     apt-get install -y wget &&\
+    apt-get install -y file &&\
     apt-get install -y git &&\
     apt-get install -y gcc &&\
     apt-get install -y g++ &&\
@@ -94,17 +95,17 @@ RUN cd /home/ubuntu &&\
     cd /home/ubuntu &&\
     rm -r libslink-4.1.5 &&\
     cd /home/ubuntu &&\
-    wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.1.tar.gz &&\
-    tar -xf v3.8.1.tar.gz &&\
-    rm v3.8.1.tar.gz &&\
-    cd Catch2-3.8.1/ &&\
+    wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.9.1.tar.gz &&\
+    tar -xf v3.9.1.tar.gz &&\
+    rm v3.9.1.tar.gz &&\
+    cd Catch2-3.9.1/ &&\
     mkdir build &&\
     cd build &&\
     cmake .. &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf Catch2-3.8.1/ &&\
+    rm -rf Catch2-3.9.1/ &&\
     wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz &&\
     tar -xf v1.15.3.tar.gz &&\
     rm v1.15.3.tar.gz &&\

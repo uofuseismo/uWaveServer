@@ -231,7 +231,7 @@ set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 cpack_add_component(libraries
                     DISPLAY_NAME "Application common library"
-                    DEPENDS ${MINISEED_LIBRARY})
+                    DEPENDS ${MiniSEED_LIBRARY} ${SEEDLink_LIBRARY})
 cpack_add_component(headers
                     DISPLAY_NAME "libuWaveServer header files"
                     DEPENDS libraries)
@@ -262,6 +262,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 else()
    message("Unknown operating system")
 endif()
+message("CPack generators " ${CPACK_GENERATOR})
 set(CPACK_SOURCE_IGNORE_FILES
   /\\.git/
   \\.swp
