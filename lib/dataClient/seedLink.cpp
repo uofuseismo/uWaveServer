@@ -17,6 +17,8 @@
 #include "uWaveServer/version.hpp"
 #include "uWaveServer/packet.hpp"
 
+#define CLIENT_TYPE "SEEDLink"
+
 using namespace UWaveServer::DataClient;
 
 namespace
@@ -25,7 +27,6 @@ namespace
 [[nodiscard]]
 std::vector<UWaveServer::Packet>
     miniSEEDToDataPackets(char *msRecord, const int bufferSize)
-    //                     const int seedLinkRecordSize = 512)
 {
     std::vector<UWaveServer::Packet> dataPackets;
     auto bufferLength = static_cast<uint64_t> (bufferSize);
@@ -37,7 +38,7 @@ std::vector<UWaveServer::Packet>
         UWaveServer::Packet dataPacket;
         MS3Record *miniSEEDRecord{nullptr};
         auto returnCode = msr3_parse(msRecord + offset,
-                                     static_cast<uint64_t> (bufferSize) - offset, // bufferSize, //seedLinkRecordSize,
+                                     static_cast<uint64_t> (bufferSize) - offset,
                                      &miniSEEDRecord, flags,
                                      verbose);
         if (returnCode == MS_NOERROR && miniSEEDRecord)
@@ -51,17 +52,11 @@ std::vector<UWaveServer::Packet>
             std::fill(stationWork.begin(),  stationWork.end(), '\0');
             std::fill(channelWork.begin(),  channelWork.end(), '\0'); 
             std::fill(locationWork.begin(), locationWork.end(), '\0');
-#ifdef USE_MS_VERSION_315
             returnCode = ms_sid2nslc_n(miniSEEDRecord->sid,
                                        networkWork.data(), networkWork.size(),
                                        stationWork.data(), stationWork.size(),
                                        locationWork.data(), locationWork.size(),
                                        channelWork.data(), channelWork.size());
-#else
-            returnCode = ms_sid2nslc(miniSEEDRecord->sid,
-                                     networkWork.data(), stationWork.data(),
-                                     locationWork.data(), channelWork.data());
-#endif
             std::string network{networkWork.data()};
             std::string station{stationWork.data()};
             std::string channel{channelWork.data()};
@@ -208,7 +203,7 @@ public:
         if (mSEEDLinkReaderThread.joinable()){mSEEDLinkReaderThread.join();}
     }
     /// Starts the service
-    void start()
+    std::future<void> start()
     {
         stop(); // Ensure module is stopped
         if (!mInitialized)
@@ -218,8 +213,8 @@ public:
         setRunning(true);
         spdlog::debug("Starting the SEEDLink polling thread...");
         mSEEDLinkConnection->terminate = 0;
-        mSEEDLinkReaderThread = std::thread(&SEEDLinkImpl::packetToCallback,
-                                            this);
+        auto result = std::async(&SEEDLinkImpl::packetToCallback, this);
+        return result;
     }
     /// Scrapes the packets and puts them to the callback
     void packetToCallback()
@@ -523,13 +518,13 @@ bool SEEDLink::isConnected() const noexcept
 }
 
 /// Start the client
-void SEEDLink::start()
+std::future<void> SEEDLink::start()
 {
     if (!isInitialized())
     {
         throw std::runtime_error("SEEDLink client not initialized");
     }
-    pImpl->start();
+    return pImpl->start();
 }
 
 /// Initialized
@@ -539,7 +534,7 @@ bool SEEDLink::isInitialized() const noexcept
 }
 
 /// Type
-IDataClient::Type SEEDLink::getType() const noexcept
+std::string SEEDLink::getType() const noexcept
 {
-    return Type::SEEDLink;
+    return CLIENT_TYPE;
 }

@@ -187,6 +187,10 @@ public:
         {
             return static_cast<int> (mInteger64Data.size());
         }
+        else if (mDataType == Packet::DataType::Text)
+        {
+            return static_cast<int> (mTextData.size());
+        }
 #ifndef NDEBUG
         assert(false);
 #else
@@ -215,6 +219,10 @@ public:
         {
             return mInteger64Data.empty();
         }
+        else if (mDataType == Packet::DataType::Text)
+        {
+            return mTextData.empty();
+        }
 #ifndef NDEBUG
         assert(false);
 #else
@@ -227,6 +235,7 @@ public:
         mInteger64Data.clear();
         mFloatData.clear();
         mDoubleData.clear();
+        mTextData.clear();
         mDataType = Packet::DataType::Unknown;
     }
     void setData(std::vector<int> &&data)
@@ -261,6 +270,14 @@ public:
         mDataType = Packet::DataType::Integer64;
         updateEndTime();
     }   
+    void setData(std::vector<char> &&data)
+    {   
+        if (data.empty()){return;}
+        clearData();
+        mTextData = std::move(data); 
+        mDataType = Packet::DataType::Text;
+        updateEndTime();
+    }   
     void updateEndTime()
     {
         mEndTimeMicroSeconds = mStartTimeMicroSeconds;
@@ -282,6 +299,7 @@ public:
     std::vector<int64_t> mInteger64Data;
     std::vector<float> mFloatData;
     std::vector<double> mDoubleData;
+    std::vector<char> mTextData;
     std::chrono::microseconds mStartTimeMicroSeconds{0};
     std::chrono::microseconds mEndTimeMicroSeconds{0};
     double mSamplingRate{0};
@@ -339,14 +357,20 @@ void Packet::setNetwork(const std::string &stringIn)
 
 std::string Packet::getNetwork() const
 {
-    if (!haveNetwork())
+    return std::string {getNetworkReference()};
+}
+
+const std::string &Packet::getNetworkReference() const
+{
+    if (!hasNetwork())
     {
         throw std::runtime_error("Network code not set");
     }
-    return pImpl->mNetwork;
+    return *&pImpl->mNetwork;
 }
 
-bool Packet::haveNetwork() const noexcept
+
+bool Packet::hasNetwork() const noexcept
 {
     return !pImpl->mNetwork.empty();
 }
@@ -361,14 +385,19 @@ void Packet::setStation(const std::string &stringIn)
 
 std::string Packet::getStation() const
 {
-    if (!haveStation())
-    {
-        throw std::runtime_error("Station name not set");
-    }
-    return pImpl->mStation;
+    return std::string {getStationReference()};
 }
 
-bool Packet::haveStation() const noexcept
+const std::string &Packet::getStationReference() const
+{
+    if (!hasStation())
+    {   
+        throw std::runtime_error("Station name not set");
+    }
+    return *&pImpl->mStation;
+}
+
+bool Packet::hasStation() const noexcept
 {
     return !pImpl->mStation.empty();
 }
@@ -383,14 +412,19 @@ void Packet::setChannel(const std::string &stringIn)
 
 std::string Packet::getChannel() const
 {
-    if (!haveChannel())
+    return std::string {getChannelReference()};
+} 
+
+const std::string &Packet::getChannelReference() const
+{
+    if (!hasChannel())
     {
         throw std::runtime_error("Channel code not set");
     }
-    return pImpl->mChannel;
+    return *&pImpl->mChannel;
 }
 
-bool Packet::haveChannel() const noexcept
+bool Packet::hasChannel() const noexcept
 {
     return !pImpl->mChannel.empty();
 }
@@ -404,14 +438,19 @@ void Packet::setLocationCode(const std::string &stringIn)
 
 std::string Packet::getLocationCode() const
 {
-    if (!haveLocationCode())
+    return std::string {getLocationCodeReference()};
+}
+
+const std::string &Packet::getLocationCodeReference() const
+{
+    if (!hasLocationCode())
     {
         throw std::runtime_error("Location code not set");
     }
-    return pImpl->mLocationCode;
+    return *&pImpl->mLocationCode;
 }
 
-bool Packet::haveLocationCode() const noexcept
+bool Packet::hasLocationCode() const noexcept
 {
     return pImpl->mHaveLocationCode;
 }
@@ -421,7 +460,7 @@ void Packet::setSamplingRate(const double samplingRate)
 {
     if (samplingRate <= 0)
     {
-        throw std::invalid_argument("samplingRate = "
+        throw std::invalid_argument("Sampling rate "
                                   + std::to_string(samplingRate)
                                   + " must be positive");
     }
@@ -431,11 +470,11 @@ void Packet::setSamplingRate(const double samplingRate)
 
 double Packet::getSamplingRate() const
 {   
-    if (!haveSamplingRate()){throw std::runtime_error("Sampling rate not set");}
+    if (!hasSamplingRate()){throw std::runtime_error("Sampling rate not set");}
     return pImpl->mSamplingRate;
 }       
 
-bool Packet::haveSamplingRate() const noexcept
+bool Packet::hasSamplingRate() const noexcept
 {
     return (pImpl->mSamplingRate > 0);
 }
@@ -460,7 +499,7 @@ std::chrono::microseconds Packet::getStartTime() const noexcept
 
 std::chrono::microseconds Packet::getEndTime() const
 {
-    if (!haveSamplingRate())
+    if (!hasSamplingRate())
     {
         throw std::runtime_error("Sampling rate note set");
     }
@@ -506,6 +545,12 @@ std::vector<U> Packet::getData() const
     {
         std::copy(pImpl->mInteger64Data.begin(),
                   pImpl->mInteger64Data.end(),
+                  result.begin());
+    }
+    else if (dataType == Packet::DataType::Text)
+    {
+        std::copy(pImpl->mTextData.begin(),
+                  pImpl->mTextData.end(),
                   result.begin());
     }
     else
@@ -611,7 +656,7 @@ void Packet::trim(const std::chrono::microseconds &startTime,
     {
         throw std::invalid_argument("Start time must be less than end time");
     }
-    if (!haveSamplingRate()){return;}
+    if (!hasSamplingRate()){return;}
     if (empty()){return;} 
     // Typically we don't have to do anything
     if (pImpl->mStartTimeMicroSeconds >= startTime &&
@@ -652,29 +697,35 @@ void Packet::trim(const std::chrono::microseconds &startTime,
     {
         if (iStart < iEnd)
         {
-            if (getDataType() == Packet::DataType::Integer32)
+            auto dataType = getDataType();
+            if (dataType == Packet::DataType::Integer32)
             {
                 std::vector<int> work(pImpl->mInteger32Data.data() + iStart, 
                                       pImpl->mInteger32Data.data() + iEnd);
                 setData(std::move(work));
             }
-            else if (getDataType() == Packet::DataType::Integer64)
+            else if (dataType == Packet::DataType::Integer64)
             {
                 std::vector<int64_t> work(pImpl->mInteger64Data.data() + iStart,
                                           pImpl->mInteger64Data.data() + iEnd);
                 setData(std::move(work));
             }
-            else if (getDataType() == Packet::DataType::Double)
+            else if (dataType == Packet::DataType::Double)
             {
                 std::vector<double> work(pImpl->mDoubleData.data() + iStart,
                                          pImpl->mDoubleData.data() + iEnd);
                 setData(std::move(work));
             }
-            else if (getDataType() == Packet::DataType::Float)
+            else if (dataType == Packet::DataType::Float)
             {
                 std::vector<float> work(pImpl->mFloatData.data() + iStart,
                                         pImpl->mFloatData.data() + iEnd);
                 setData(std::move(work));
+            }
+            else if (dataType == Packet::DataType::Text)
+            {
+                std::vector<char> work(pImpl->mTextData.data() + iStart,
+                                       pImpl->mTextData.data() + iEnd);
             }
             else
             {
@@ -716,15 +767,19 @@ template void Packet::setData(const int nSamples, const int *data);
 template void Packet::setData(const int nSamples, const float *data);
 template void Packet::setData(const int nSamples, const double *data);
 template void Packet::setData(const int nSamples, const int64_t *data);
+template void Packet::setData(const int nSamples, const char *data);
 template void Packet::setData(std::vector<int> &&data);
 template void Packet::setData(std::vector<float> &&data);
 template void Packet::setData(std::vector<double> &&data);
 template void Packet::setData(std::vector<int64_t> &&data);
+template void Packet::setData(std::vector<char> &&data);
 template void Packet::setData(const std::vector<int> &data);
 template void Packet::setData(const std::vector<float> &data);
 template void Packet::setData(const std::vector<double> &data);
 template void Packet::setData(const std::vector<int64_t> &data);
+template void Packet::setData(const std::vector<char> &data);
 template std::vector<int> Packet::getData() const;
 template std::vector<float> Packet::getData() const;
 template std::vector<double> Packet::getData() const;
 template std::vector<int64_t> Packet::getData() const;
+template std::vector<char> Packet::getData() const;

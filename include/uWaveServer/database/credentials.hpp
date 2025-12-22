@@ -1,39 +1,33 @@
-#ifndef UWAVE_SERVER_DATABASE_CONNECTION_POSTGRESQL_HPP
-#define UWAVE_SERVER_DATABASE_CONNECTION_POSTGRESQL_HPP
+#ifndef UWAVE_SERVER_DATABASE_CREDENTIALS_HPP
+#define UWAVE_SERVER_DATABASE_CREDENTIALS_HPP
 #include <cstdint>
 #include <memory>
-namespace UWaveServer::Database::Connection
+namespace UWaveServer::Database
 {
-/// @name PostgreSQL "postgresql.hpp" "uWaveServer/database/connection/postgresql.hpp"
-/// @brief Defines a PostgreSQL connection.
+/// @name Credentials "credentials.hpp"
+/// @brief Encapsulates the parameters for a libpqxx PostgreSQL connection.
 /// @copyright Ben Baker (University of Utah) distributed under the MIT license. 
-class PostgreSQL
+class Credentials
 {
 public:
     /// @name Constructors
     /// @{
 
     /// @brief Constructor.
-    PostgreSQL();
+    Credentials();
+    /// @brief Copy constructor.
+    /// @param[in] credentials  The credentials from which to initialize
+    ///                         this class.
+    Credentials(const Credentials &credentials);
     /// @brief Move constructor.
-    /// @param[in,out] connection  The connection from which to initialize this
-    ///                            class.
-    PostgreSQL(PostgreSQL &&connection) noexcept;
+    /// @param[in,out] credentials  The credentials from which to initialize
+    ///                             this class.
+    Credentials(Credentials &&credentials) noexcept;
     /// @}
 
-    /// @name Operators
-    /// @{
-
-    /// @brief Move assignment.
-    /// @param[in,out] connection  The connection whose memory will be moved to
-    ///                            this.  On exit, connection's behavior is
-    ///                            is undefined.
-    /// @result The memory from the connection moved to this.
-    PostgreSQL& operator=(PostgreSQL &&connection) noexcept;
-    /// @}
-    
     /// @name User Name
     /// @{
+
     /// @brief Sets the user name.
     /// @param[in] user  The user name.
     /// @throws std::invalid_argument if user is empty.
@@ -63,12 +57,13 @@ public:
     /// @{
 
     /// @brief Sets the host's address.
-    /// @param[in] address  The hosts's address e.g., machine.domain.com
-    /// @throws std::invalid_argument if the address is empty.
-    void setAddress(const std::string &address);
+    /// @param[in] host  The hosts's address e.g.,
+    ///                  localhost or machine.domain.com
+    /// @throws std::invalid_argument if the host is empty.
+    void setHost(const std::string &address);
     /// @result The host address.
     /// @note By default this is 127.0.0.1
-    [[nodiscard]] std::string getAddress() const noexcept;
+    [[nodiscard]] std::string getHost() const noexcept;
     /// @}
 
     /// @name Database Name
@@ -111,6 +106,13 @@ public:
     /// @result The application name.
     /// @note By default this is qurts.
     [[nodiscard]] std::string getApplication() const noexcept;
+
+    /// @brief Enables the session as read-only.
+    void enableReadOnly() noexcept;
+    /// @brief Enables the session as read-write.
+    void enableReadWrite() noexcept;
+    /// @result True indicates the session is read-only. 
+    [[nodiscard]] bool isReadOnly() const noexcept;
     /// @}
 
     /// @name Driver
@@ -120,43 +122,34 @@ public:
     [[nodiscard]] static std::string getDriver() noexcept;
     /// @}
 
-    /// @name Connect
-    /// @{
-
-    /// @result The connection string.
-    [[nodiscard]] std::string getConnectionString() const;
-    /// @brief Establishes a connection from the above resources.
-    void connect();
-    /// @brief Attempts to reconnect.
-    void reconnect();
-    /// @result True indicates the connection was established.
-    [[nodiscard]] bool isConnected() const noexcept;
-    /// @}
-
-    /// @result A shared pointer to the session.
-    /// @throws std::runtime_error if \c isConnected() is false.
-    [[nodiscard]] std::uintptr_t getSession() const;
-
-    /// @name Disconnect
-    /// @{
-
-    /// @brief Disconnects from the database
-    ///        (provided \c isConnected() is true).
-    void disconnect();
-    /// }
+    /// @result A connection string for pqxx.
+    /// @throws std::runtime_error if any required parameter is not set.
+    [[nodiscard]] const char *getConnectionString() const;
 
     /// @name Destructors
     /// @{
 
     /// @brief Destructor.
-    ~PostgreSQL();
+    ~Credentials();
     /// @}
 
-    PostgreSQL(const PostgreSQL &) = delete;
-    PostgreSQL& operator=(const PostgreSQL &) = delete;
+    /// @name Operators
+    /// @{
+
+    /// @brief Copy assignment.
+    /// @param[in] credentials  The credentials to copy to this.
+    /// @result A deep copy of the credentials.
+    Credentials& operator=(const Credentials &credentials); 
+    /// @brief Move assignment.
+    /// @param[in,out] credentials  The credentials whose memory will be moved
+    ///                             to this.  On exit, credential's behavior is
+    ///                             is undefined.
+    /// @result The memory from the credentials moved to this.
+    Credentials& operator=(Credentials &&credentials) noexcept;
+    /// @}
 private:
-    class PostgreSQLImpl;
-    std::unique_ptr<PostgreSQLImpl> pImpl;
+    class CredentialsImpl;
+    std::unique_ptr<CredentialsImpl> pImpl;
 };
 }
 #endif

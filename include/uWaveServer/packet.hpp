@@ -17,9 +17,10 @@ public:
     enum class DataType
     {
         Integer32, /*!< 32-bit integer */
-        Integer64, /*!< 64-bit integer */
+        Integer64, /*!< 63-bit integer */
         Float,     /*!< 32-bit float */
         Double,    /*!< 64-bit double precision */
+        Text,      /*!< Text data */
         Unknown    /*!< The data type is unknown. */
     };
 public:
@@ -35,32 +36,48 @@ public:
     void setNetwork(const std::string &network);
     /// @result The network code.
     [[nodiscard]] std::string getNetwork() const;
+    /// @result The network code.
+    /// @note This exists for optimization reasons - you should prefer
+    ///       \c getNetwork().
+    [[nodiscard]] const std::string &getNetworkReference() const;
     /// @result True indicates the network code was set.
-    [[nodiscard]] bool haveNetwork() const noexcept;
+    [[nodiscard]] bool hasNetwork() const noexcept;
 
     /// @brief Sets the station name.
     /// @param[in] station  The station name - e.g., TCU.
     void setStation(const std::string &station);
     /// @result The station name.
     [[nodiscard]] std::string getStation() const;
+    /// @result The stationa name.
+    /// @note This exists for optimization reasons - you should prefer
+    ///       \c getStation().
+    [[nodiscard]] const std::string &getStationReference() const;
     /// @result True indicates the station was set. 
-    [[nodiscard]] bool haveStation() const noexcept;
+    [[nodiscard]] bool hasStation() const noexcept;
 
     /// @brief Sets the channel code.
     /// @param[in] channel  The channel code - e.g., HHZ.
     void setChannel(const std::string &channel);
     /// @result The channel code.
     [[nodiscard]] std::string getChannel() const;
+    /// @result The channel code.
+    /// @note This exists for optimization reasons - you should prefer
+    ///       \c getChannel().
+    [[nodiscard]] const std::string &getChannelReference() const;
     /// @result True indicates the channel code was set.
-    [[nodiscard]] bool haveChannel() const noexcept;
+    [[nodiscard]] bool hasChannel() const noexcept;
 
     /// @brief Sets the location code.
     /// @param[in] location  The location code - e.g., 01.
     void setLocationCode(const std::string &locationCode);
     /// @result The location code.
     [[nodiscard]] std::string getLocationCode() const;
+    /// @result The location code.
+    /// @note This exists for optimization reasons - you should prefer
+    ///       \c getLocationCode().
+    [[nodiscard]] const std::string &getLocationCodeReference() const;
     /// @result True indicates the location code was set.
-    [[nodiscard]] bool haveLocationCode() const noexcept;
+    [[nodiscard]] bool hasLocationCode() const noexcept;
 
     /// @brief Sets the start time of the packet.
     /// @param[in] startTime  The start time (UTC) of the packet in seconds
@@ -84,7 +101,7 @@ public:
     /// @result The sampling rate in Hz.
     [[nodiscard]] double getSamplingRate() const;
     /// @result True indicates the sampling rate was set.
-    [[nodiscard]] bool haveSamplingRate() const noexcept;
+    [[nodiscard]] bool hasSamplingRate() const noexcept;
 
     /// @result The number of samples.
     [[nodiscard]] int size() const noexcept;

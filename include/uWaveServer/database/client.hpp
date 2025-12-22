@@ -3,14 +3,15 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <chrono>
 #include <set>
 namespace UWaveServer
 {
  class Packet;
 }
-namespace UWaveServer::Database::Connection
+namespace UWaveServer::Database
 {
- class PostgreSQL;
+ class Credentials;
 }
 namespace UWaveServer::Database
 {
@@ -20,7 +21,7 @@ class Client
 {
 public:
     /// @brief Constructs the client from the given postgres connection.
-    explicit Client(Connection::PostgreSQL &&connection);
+    explicit Client(const Credentials &credentials);
 
     /// @brief Writes a packet to the database.
     /// @param[in] packet  A data packet with a network, station, channel,
@@ -39,7 +40,14 @@ public:
                                 const std::string &locationCode) const;
     [[nodiscard]] std::vector<UWaveServer::Packet>
          query(const std::string &network,
-               const std::string &staiton,
+               const std::string &station,
+               const std::string &channel,
+               const std::string &locationCode,
+               const std::chrono::microseconds &startTime,
+               const std::chrono::microseconds &endTime) const;
+    [[nodiscard]] std::vector<UWaveServer::Packet>
+         query(const std::string &network,
+               const std::string &station,
                const std::string &channel,
                const std::string &locationCode,
                const double startTime,
