@@ -1,15 +1,14 @@
 # Purpose: Creates the base image for building the uWaveServer C++ software - 
 #          i.e., - all the prerequisites so you are ready to build.
-# Usage: podman build -t uwaveserverbase:latest -f Dockerfile.base.u24
+# Usage: buildah build -t uwaveserverbase:latest -f Dockerfile.base.u24
+#        buildah push uwaveserverbase quay.io/uuss/uwaveserverbase
 FROM ubuntu:24.04
 MAINTAINER Ben Baker <ben.baker@utah.edu>
 USER root
 ENV PATH="$PATH:/usr/local/bin"
 ENV BOOST_ROOT="/usr/local"
 ENV CPLUS_INCLUDE_PATH="/usr/local/include:${CPLUS_INCLUDE_PATH}"
-ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/soci_shared/lib:/usr/local/spdlog_shared/lib"
-ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/lib/cmake/spdlog/"
-ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/lib/cmake/spdlog/"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/"
 
 RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get update &&\
@@ -19,9 +18,7 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get install -y wget &&\
     apt-get install -y file &&\
     apt-get install -y git &&\
-    apt-get install -y gcc &&\
-    apt-get install -y g++ &&\
-    apt-get install -y git &&\
+    apt-get install -y clang &&\
     apt-get install -y curl &&\
     apt-get install -y autoconf &&\
     apt-get install -y make &&\
@@ -31,9 +28,8 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get install -y openssl &&\
     apt-get install -y libcurl4-openssl-dev &&\
     apt-get install -y libpq-dev
-#apt-get install -y libboost-all-dev &&\
 
-# soci needs libsqlite3
+# we'll be using compression - zlib
 RUN mkdir -p /home/ubuntu &&\
     mkdir -p /usr/local/include &&\
     mkdir -p /usr/local/lib &&\
@@ -46,111 +42,106 @@ RUN mkdir -p /home/ubuntu &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -r zlib-1.3.1 &&\
-    cd /home/ubuntu &&\
-    wget -q https://sqlite.org/2025/sqlite-autoconf-3490200.tar.gz &&\
-    tar -xf sqlite-autoconf-3490200.tar.gz &&\ 
-    rm sqlite-autoconf-3490200.tar.gz &&\
-    cd sqlite-autoconf-3490200 &&\
-    ./configure --prefix=/usr/local &&\
-    make &&\
-    make install &&\
-    cd /home/ubuntu &&\
-    rm -r sqlite-autoconf-3490200 &&\
-    cd /home/ubuntu
+    rm -r zlib-1.3.1
 
-# i don't like how ubuntu installs boost - i get everything and i really
-# don't need it
-RUN mkdir -p /usr/local/spdlog_static &&\
-    mkdir -p /usr/local/soci_static &&\
-    cd /home/ubuntu &&\
+# I don't like how ubuntu installs boost - I get everything but I really
+# don't need everything
+RUN cd /home/ubuntu &&\
     wget -q https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.gz &&\
     tar -xf boost_1_88_0.tar.gz &&\
     rm boost_1_88_0.tar.gz &&\
     cd boost_1_88_0 &&\
-    ./bootstrap.sh &&\
-    ./b2 --with-headers --with-asio --with-beast --with-url --with-program_options --with-date_time &&\
+    ./bootstrap.sh --with-toolset=clang &&\
     ./b2 install --prefix=/usr/local --with-headers --with-asio --with-beast --with-url --with-program_options --with-date_time &&\
     cd /home/ubuntu &&\
     rm -rf boost_1_88_0
 
-# libmseed, libslink, catch2, spdlog, nlohmann::json, soci
+# libmseed, libslink, catch2, spdlog, nlohmann::json
 RUN cd /home/ubuntu &&\
-    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.1.5.tar.gz &&\
-    tar -xf v3.1.5.tar.gz &&\
-    rm v3.1.5.tar.gz &&\
-    cd libmseed-3.1.5 &&\
-    make static shared &&\
+    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.2.2.tar.gz &&\
+    tar -xf v3.2.2.tar.gz &&\
+    rm v3.2.2.tar.gz &&\
+    cd libmseed-3.2.2 &&\
+    cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/usr/local &&\
+    cd build &&\
     make install &&\
-    mv libmseed.a /usr/local/lib/ &&\
     cd /home/ubuntu &&\
-    rm -r libmseed-3.1.5 &&\
-    wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.1.5.tar.gz &&\
-    tar -xf v4.1.5.tar.gz &&\ 
-    rm v4.1.5.tar.gz &&\
-    cd libslink-4.1.5 &&\
+    rm -r libmseed-3.2.2 &&\
+    wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.2.0.tar.gz &&\
+    tar -xf v4.2.0.tar.gz &&\ 
+    rm v4.2.0.tar.gz &&\
+    cd libslink-4.2.0 &&\
     make static shared &&\
     make install &&\
     mv libslink.a /usr/local/lib/ &&\
     cd /home/ubuntu &&\
-    rm -r libslink-4.1.5 &&\
+    rm -r libslink-4.2.0 &&\
     cd /home/ubuntu &&\
-    wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.9.1.tar.gz &&\
-    tar -xf v3.9.1.tar.gz &&\
-    rm v3.9.1.tar.gz &&\
-    cd Catch2-3.9.1/ &&\
+    wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.12.0.tar.gz &&\
+    tar -xf v3.12.0.tar.gz &&\
+    rm v3.12.0.tar.gz &&\
+    cd Catch2-3.12.0/ &&\
     mkdir build &&\
     cd build &&\
     cmake .. &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf Catch2-3.9.1/ &&\
-    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz &&\
-    tar -xf v1.15.3.tar.gz &&\
-    rm v1.15.3.tar.gz &&\
-    cd spdlog-1.15.3 &&\
-    mkdir build_static &&\
-    mkdir build_shared &&\
+    rm -rf Catch2-3.12.0/ &&\
+    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.16.0.tar.gz &&\
+    tar -xf v1.16.0.tar.gz &&\
+    rm v1.16.0.tar.gz &&\
+    cd spdlog-1.16.0 &&\
+    cmake -B build_static -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/ &&\
     cd build_static &&\
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/spdlog_static &&\
-    make &&\
-    make install &&\
-    cd ../ &&\
-    cd build_shared &&\
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=ON -DCMAKE_INSTALL_PREFIX=/usr/local/spdlog_shared &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf spdlog-1.15.3 &&\
-    wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz &&\
-    tar -xf v3.12.0.tar.gz &&\
-    rm v3.12.0.tar.gz &&\
-    cd json-3.12.0/ &&\
+    rm -rf spdlog-1.16.0 &&\
+    wget -q https://github.com/jtv/libpqxx/archive/refs/tags/7.10.4.tar.gz &&\
+    tar -xf 7.10.4.tar.gz &&\
+    rm -f 7.10.4.tar.gz &&\
+    cd libpqxx-7.10.4 &&\
+    cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF -DCMAKE_CXX_COMPILER=clang++ &&\
+    cd build &&\
+    make -j 2 &&\
+    make install &&\
+    cd /home/ubuntu &&\
+    rm -rf libpqxx-7.10.4 &&\
+    wget https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.24.0.tar.gz &&\
+    tar -xf v1.24.0.tar.gz &&\
+    rm v1.24.0.tar.gz &&\
+    cd opentelemetry-cpp-1.24.0 &&\
     mkdir build &&\
     cd build &&\
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DJSON_BuildTests=OFF &&\
+    cmake .. -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DWITH_PROMETHEUS=ON -DCMAKE_CXX_COMPILER=clang++ -DWITH_EXAMPLES=OFF -DWITH_ABI_VERSION_1=OFF -DWITH_ABI_VERSION_2=ON &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -r json-3.12.0 &&\
-    wget -q https://github.com/SOCI/soci/archive/refs/tags/v4.1.1.tar.gz &&\
-    tar -xf v4.1.1.tar.gz &&\
-    rm v4.1.1.tar.gz &&\
-    cd soci-4.1.1 &&\
-    mkdir build_static &&\
-    mkdir build_shared &&\
-    cd build_static &&\
-    cmake .. -DSOCI_SHARED=OFF -DSOCI_TESTS=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr/local/soci_static &&\
-    make &&\
-    make install &&\
-    cd ../ &&\
-    cd build_shared &&\
-    cmake .. -DSOCI_SHARED=ON -DSOCI_TESTS=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr/local/soci_shared &&\
+    rm -r opentelemetry-cpp-1.24.0 &&\
+    wget -q https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.0.tar.gz &&\
+    tar -xf v1.3.0.tar.gz &&\
+    rm v1.3.0.tar.gz &&\
+    cd Crow-1.3.0/ &&\
+    cmake -B build -DCROW_USE_BOOST=ON -DCROW_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang &&\
+    cd build &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf soci-4.1.1
+    rm -rf Crow-1.3.0/
+
+
+#    wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz &&\
+#    tar -xf v3.12.0.tar.gz &&\
+#    rm v3.12.0.tar.gz &&\
+#    cd json-3.12.0/ &&\
+#    mkdir build &&\
+#    cd build &&\
+#    cmake .. -DCMAKE_BUILD_TYPE=Release -DJSON_BuildTests=OFF &&\
+#    make &&\
+#    make install &&\
+#    cd /home/ubuntu &&\
+#    rm -r json-3.12.0
 
 #RUN cd /home/ubuntu &&\
 #    git clone https://github.com/uofuseismo/uWaveServer.git &&\
@@ -158,6 +149,6 @@ RUN cd /home/ubuntu &&\
 #    mkdir build &&\
 #    cd build &&\
 #    cmake ..
-ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/cmake/"
-ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/cmake/"
+#ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/cmake/"
+#ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/cmake/"
 # To use cmake -DCMAKE_MODULE_PATH=${CMAKE_XXXXXX_MODULE_PATH}

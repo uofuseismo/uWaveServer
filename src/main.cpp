@@ -20,8 +20,9 @@
 #include "uWaveServer/dataClient/dataClient.hpp"
 #include "uWaveServer/dataClient/streamSelector.hpp"
 #include "uWaveServer/database/client.hpp"
-#include "uWaveServer/database/connection/postgresql.hpp"
+#include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
+#include "getEnvironmentVariable.hpp"
 
 [[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
 
@@ -42,55 +43,12 @@ std::string toName(const UWaveServer::Packet &packet)
     return name;
 }
 
-std::string getEnvironmentVariable(const std::string &variable,
-                                   const std::string &defaultValue)
-{
-    std::string result{defaultValue};
-    if (variable.empty()){return result;}
-    try
-    {
-        auto resultPointer = std::getenv(variable.c_str());
-        if (resultPointer)
-        {
-            if (std::strlen(resultPointer) > 0)
-            {
-                result = std::string {resultPointer};
-            }
-        }
-    }
-    catch (...)
-    {
-    }
-    return result;
-}
-
-std::string getEnvironmentVariable(const std::string &variable)
-{ 
-    return ::getEnvironmentVariable(variable, "");
-}
-
-int getIntegerEnvironmentVariable(const std::string &variable, int defaultValue)
-{
-    int result{defaultValue};
-    try
-    {
-        auto stringValue = ::getEnvironmentVariable(variable);
-        if (!stringValue.empty())
-        {
-            result = std::stoi(stringValue.c_str());
-        }
-    }
-    catch (...)
-    {
-    }
-    return result;
-}
-
 struct ProgramOptions
 {
     UWaveServer::PacketSanitizerOptions mPacketSanitizerOptions;
     std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
     std::string applicationName{"uwsDataLoader"};
+    std::string prometheusURL{"localhost:9020"};
     std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
     std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
     std::string databaseName{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};
@@ -117,35 +75,27 @@ public:
         //mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
 
-        // Create the shallow packet sanitizer
-/*
-        mPacketSanitizer
-            = std::make_unique<UWaveServer::PacketSanitizer>
-              (options.mPacketSanitizerOptions);
-*/
-
         // Create the database connection
         spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
         for (int iThread = 0; iThread < nDatabaseWriterThreads; ++iThread)
         {
-            UWaveServer::Database::Connection::PostgreSQL databaseConnection;
-            databaseConnection.setUser(options.databaseUser);
-            databaseConnection.setPassword(options.databasePassword);
-            databaseConnection.setAddress(options.databaseHost);
-            databaseConnection.setPort(options.databasePort);
-            databaseConnection.setDatabaseName(options.databaseName);
-            databaseConnection.setApplication(options.applicationName
-                                            + "-" + std::to_string(iThread));
+            UWaveServer::Database::Credentials databaseCredentials;
+            databaseCredentials.setUser(options.databaseUser);
+            databaseCredentials.setPassword(options.databasePassword);
+            databaseCredentials.setHost(options.databaseHost);
+            databaseCredentials.setPort(options.databasePort);
+            databaseCredentials.setDatabaseName(options.databaseName);
+            databaseCredentials.setApplication(options.applicationName
+                                             + "-" + std::to_string(iThread));
             if (!options.databaseSchema.empty())
             {
                 spdlog::info("Will connect to schema "
                            + options.databaseSchema);
-                databaseConnection.setSchema(options.databaseSchema);
+                databaseCredentials.setSchema(options.databaseSchema);
             }
-            databaseConnection.connect(); 
             auto databaseClient 
                 = std::make_unique<UWaveServer::Database::Client>
-                  (std::move(databaseConnection));
+                  (databaseCredentials);
             mDatabaseClients.push_back(std::move(databaseClient)); 
         }
 
@@ -171,27 +121,27 @@ public:
     // Adds a packet obtained by the acquisition
     void addPacketFromAcquisition(UWaveServer::Packet &&packet)
     {
-        if (!packet.haveNetwork())
+        if (!packet.hasNetwork())
         {
             spdlog::warn("Network not set on packet - skipping");
             return;
         }
-        if (!packet.haveStation())
+        if (!packet.hasStation())
         {
             spdlog::warn("Station not set on packet - skipping");
             return;
         }
-        if (!packet.haveChannel())
+        if (!packet.hasChannel())
         {
             spdlog::warn("Channel not set on packet - skipping");
             return;
         }
-        if (!packet.haveLocationCode())
+        if (!packet.hasLocationCode())
         {
             spdlog::warn("Location code not set on packet - skipping");
             return;
         }
-        if (!packet.haveSamplingRate())
+        if (!packet.hasSamplingRate())
         {
             auto name = ::toName(packet);
             spdlog::warn("Sampling rate not set on " + name 
@@ -369,24 +319,24 @@ public:
             // If the packet doesn't have data then just skip it
             if (packet.empty()){continue;}
             // Is the packet valid?
-            if (!packet.haveNetwork())
+            if (!packet.hasNetwork())
             {
                 spdlog::warn("Network code not set on packet; skipping");
                 continue;
             }
-            if (!packet.haveStation())
+            if (!packet.hasStation())
             {
                 spdlog::warn("Station name not set on packet; skipping");
                 continue;
             }
-            if (!packet.haveChannel())
+            if (!packet.hasChannel())
             {
                 spdlog::warn("Channel code not set on packet; skipping");
                 continue;
             }
             // Location code we can fake
-            if (!packet.haveLocationCode()){packet.setLocationCode("--");}
-            if (!packet.haveSamplingRate())
+            if (!packet.hasLocationCode()){packet.setLocationCode("--");}
+            if (!packet.hasSamplingRate())
             {
                 spdlog::warn("Sampling rate not set on packet; skipping");
                 continue;
@@ -435,6 +385,13 @@ public:
                     mStopRequested = true;
                     break;
                 }
+                if (!checkFuturesOkay(std::chrono::milliseconds {5}))
+                {
+                    spdlog::critical(
+                       "Futures exception caught; terminating app");
+                    mStopRequested = true;
+                    break;
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds {50});
             }
         }
@@ -464,10 +421,12 @@ public:
         }
         stop();
         setRunning(true);
+        mDataAcquisitionFutures.clear();
         for (auto &dataAcquisitionClient : mDataAcquisitionClients)
         {
             spdlog::info("Starting client");
-            dataAcquisitionClient->start();
+            mDataAcquisitionFutures.push_back(
+                dataAcquisitionClient->start());
         }
         mShallowPacketSanitizerThread
             = std::thread(&::Process::shallowDeduplicator, this);
@@ -489,6 +448,15 @@ public:
         {
             dataAcquisitionClient->stop();
         }
+        for (auto &dataAcquisitionFuture : mDataAcquisitionFutures)
+        {
+            if (dataAcquisitionFuture.valid())
+            {
+                dataAcquisitionFuture.get();
+            }
+        } 
+        mDataAcquisitionFutures.clear();
+
         if (mShallowPacketSanitizerThread.joinable())
         {
             mShallowPacketSanitizerThread.join();
@@ -525,12 +493,36 @@ public:
             mWritePacketToDatabaseQueue.pop();
         }
     }
-
+    /// @brief Checks the futures
+    /// True indicates the all the processes are running a-okay.
+    [[nodiscard]]
+    bool checkFuturesOkay(const std::chrono::milliseconds &timeOut)
+    {
+        bool isOkay{true};
+        for (auto &future : mDataAcquisitionFutures)
+        {
+            try
+            {
+                auto status = future.wait_for(timeOut);
+                if (status == std::future_status::ready)
+                {
+                    future.get();
+                }
+            }
+            catch (const std::exception &e) 
+            {
+                spdlog::critical("Fatal error in SEEDLink import: "
+                               + std::string {e.what()});
+                isOkay = false;
+            }
+        }
+        return isOkay;
+    }
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowPacketSanitizerQueue;
     //::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
-    std::vector<std::unique_ptr<UWaveServer::Database::Client>> mDatabaseClients;//{nullptr};
-    //std::unique_ptr<UWaveServer::PacketSanitizer> mPacketSanitizer{nullptr};
+    std::vector<std::unique_ptr<UWaveServer::Database::Client>>
+        mDatabaseClients;
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
         mDataAcquisitionClients;
     std::function<void(std::vector<UWaveServer::Packet> &&packet)>
@@ -553,6 +545,7 @@ public:
         std::chrono::seconds {3600}};
     mutable std::mutex mStopContext;
     std::condition_variable mStopCondition;
+    std::vector<std::future<void>> mDataAcquisitionFutures;
     std::vector<std::thread> mDatabaseWriterThreads;
     std::vector<std::pair<int, double>> mWriterThroughPut;
     std::thread mShallowPacketSanitizerThread;
@@ -570,7 +563,7 @@ int main(int argc, char *argv[])
     std::string iniFile;
     try
     {
-        auto [iniFileName, isHelp] = parseCommandLineOptions(argc, argv);
+        auto [iniFileName, isHelp] = ::parseCommandLineOptions(argc, argv);
         if (isHelp){return EXIT_SUCCESS;}
         iniFile = iniFileName;
     }
@@ -628,7 +621,9 @@ std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[])
 {
     std::string iniFile;
     boost::program_options::options_description desc(R"""(
-The uwsDataLoader maps data from a telemetry to the waveserver database.
+The uwsDataLoader maps data from a telemetry to the waveserver TimescaleDB
+postgres database.
+
 Example usage is
 
     uwsDataLoader --ini=loader.ini
@@ -788,10 +783,10 @@ ProgramOptions parseIniFile(const std::string &iniFile)
                                          options.databaseHost);
     if (options.databaseHost.empty())
     {
-        throw std::invalid_argument("Must specify database hot as UWAVE_SERVER_DATABASE_HOST or as Database.htos in ini file");
+        throw std::invalid_argument("Must specify database host as UWAVE_SERVER_DATABASE_HOST or as Database.host in ini file");
     }
     options.databasePort
-        = propertyTree.get<int> ("Database.port", options.databasePort);
+        = propertyTree.get<uint16_t> ("Database.port", options.databasePort);
    
     options.databaseSchema
         = propertyTree.get<std::string> ("Database.schema", "");

@@ -91,7 +91,7 @@ if (!client.contains("WY", "YLT", "EHZ", "01"))
 }
  UWaveServer::Packet packet;
  const std::string network{"WY"};
- const std::string station{"YLT"};
+ const std::string station{"YBB"};
  const std::string channel{"HHZ"};
  const std::string locationCode{"01"};
  packet.setNetwork(network);
@@ -111,6 +111,7 @@ if (!client.contains("WY", "YLT", "EHZ", "01"))
  {
   std::cerr << e.what() << std::endl;
  }
+return;
  try
  {
   double t0 = 1766102400;

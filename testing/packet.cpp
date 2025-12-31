@@ -209,25 +209,72 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
         nTotalSamples = nTotalSamples + nSamples;
     }
     // Let's try to serialize this thing
-    constexpr bool useMiniSEED3 = true;
-    try
+    SECTION("miniSEED3")
     {
-        auto result = ::toMiniSEED(packets, 512, useMiniSEED3);
-        std::ofstream outFile{"test.mseed", std::ios::binary};
-        outFile.write(result.c_str(), result.size());
-        //outFile << result;
-        outFile.close();
-
-    }
-    catch (const std::exception &e)
-    {
-        std::cerr << e.what() << std::endl;
+        constexpr bool useMiniSEED3 = true;
+        try
+        {
+            auto result = ::toMiniSEED(packets, 512, useMiniSEED3);
+            std::ofstream outFile{"test.mseed3", std::ios::binary};
+            outFile.write(result.c_str(), result.size());
+            //outFile << result;
+            outFile.close();
+ 
+            std::ifstream inFile{"test.mseed3", std::ios::binary};
+            inFile.seekg(0, std::ios::end);
+            auto length = inFile.tellg();
+            inFile.seekg(0, std::ios::beg);
+            inFile.close();
+            REQUIRE(result.size() == length); 
+// TODO mseed parse
+            std::filesystem::remove("test.mseed3");
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << e.what() << std::endl;
+        }
     }
 }
 
 TEST_CASE("UWaveServer::Packet", "[json]")
 {
-    
+    const std::string network{"UU"};
+    const std::string station{"SVWY"};
+    const std::string otherStation{"ECUT"};
+    const std::string channel{"HHZ"};
+    const std::string locationCode{"01"};
+    const double samplingRate{100};
+    const double startTime{1747326000};
+    std::vector<UWaveServer::Packet> packets;
+    int nPackets{3};
+    int nTotalSamples{0};
+    double thisStartTime{startTime};
+    for (int iPacket = 0; iPacket < nPackets; ++iPacket)
+    {
+        thisStartTime = startTime + std::max(0, (nTotalSamples - 1))/samplingRate;
+        UWaveServer::Packet packet;
+        packet.setNetwork(network);
+        packet.setStation(station);
+        packet.setChannel(channel);
+        packet.setLocationCode(locationCode);
+        packet.setSamplingRate(samplingRate);
+        packet.setStartTime(thisStartTime);
+        auto nSamples = 20 + iPacket%5;
+        std::vector<int> data(nSamples, 0);
+        auto sign = iPacket%2 == 0 ? +1 : -1;
+        std::iota(data.begin(), data.end(), sign*nTotalSamples);
+        packet.setData(data);
+        packets.push_back(packet);
+
+        // Other packet
+        packet.setStation(otherStation);
+        packets.push_back(packet);
+
+        nTotalSamples = nTotalSamples + nSamples;
+    }
+    auto json = ::packetsToCrowJSON(packets);
+    auto payload = json.dump(4);
+    //std::cout << payload << std::endl;
 }
 
 /*

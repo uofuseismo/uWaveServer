@@ -3,7 +3,8 @@ project(uWaveServer VERSION 0.1.0 LANGUAGES CXX)
 enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
-option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
+option(ENABLE_COMPRESSION "Enable copmression for the web server backend" ON)
+#option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
 include(FetchContent)
@@ -18,17 +19,24 @@ if (NOT BUILD_SHARED_LIBS)
    message("Will attempt to use Boost static libraries")
    set(Boost_USE_STATIC_LIBS ON)
 endif()
+if (${ENABLE_COMPRESSION})
+   set(CROW_ENABLE_COMPRESSION ON)
+else()
+   set(CROW_ENABLE_COMPRESSION OFF)
+endif()
 find_package(spdlog REQUIRED)
 #find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
 #find_package(PostgreSQL REQUIRED)
-find_package(nlohmann_json 3.8.0 REQUIRED)
-find_package(Boost COMPONENTS program_options url REQUIRED)
+#find_package(nlohmann_json 3.8.0 REQUIRED)
+
+find_package(Boost COMPONENTS program_options url headers REQUIRED)
 find_package(libmseed REQUIRED)
 find_package(SEEDLink REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(opentelemetry-cpp REQUIRED)
 find_package(Catch2 3)
-find_package(Earthworm)
+find_package(Crow)
 if (${ENABLE_SSL})
    if (NOT BUILD_SHARED_LIBS)
       message("Will use static SSL libraries")
@@ -44,6 +52,9 @@ else()
 endif()
 if (${OPENSSL_FOUND})
    message("Found SSL version ${OPENSSL_VERSION}")
+   if (${Crow_FOUND})
+      set(CROW_ENABLE_SSL ON)
+   endif()
 endif()
 
 
@@ -54,6 +65,7 @@ set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
     lib/dataClient/streamSelector.cpp
     lib/database/client.cpp
+    lib/database/readOnlyClient.cpp
     lib/database/credentials.cpp
     lib/testDuplicatePacket.cpp
     lib/testExpiredPacket.cpp
@@ -62,7 +74,6 @@ set(LIBRARY_SRC
     lib/packetSanitizer.cpp
     lib/packetSanitizerOptions.cpp
     lib/version.cpp
-    #lib/database/connection/postgresql.cpp
     )
 if (${SEEDLink_FOUND})
    message("Using SEEDLink")
@@ -70,10 +81,6 @@ if (${SEEDLink_FOUND})
        lib/dataClient/seedLink.cpp
        lib/dataClient/seedLinkOptions.cpp)
 endif()
-#if (${Earthworm_FOUND})
-#   message("Using Earthworm")
-#   target_compile_definitions(uWaveServer WITH_EARTHWORM)
-#endif()
 
 if (BUILD_SHARED_LIBS)
    message("Will build shared library")
@@ -88,8 +95,8 @@ else()
    set_target_properties(uWaveServer PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
-                         CXX_EXTENSIONS NO
-                         OUTPUT_NAME uWaveServer-static)
+                         CXX_EXTENSIONS NO)
+   #                      OUTPUT_NAME uWaveServer-static)
 endif()
 target_sources(uWaveServer
                PUBLIC
@@ -109,7 +116,7 @@ target_sources(uWaveServer
                   include/uWaveServer/packetSanitizerOptions.hpp
                   include/uWaveServer/version.hpp)
 target_link_libraries(uWaveServer
-                      PUBLIC nlohmann_json::nlohmann_json libpqxx::pqxx #SOCI::Core SOCI::PostgreSQL
+                      PUBLIC libpqxx::pqxx #nlohmann_json::nlohmann_json libpqxx::pqxx
                       PRIVATE spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
 #if (${ZLIB_FOUND})
 #   target_link_libraries(uWaveServer PRIVATE ZLIB::ZLIB)
@@ -142,6 +149,26 @@ target_include_directories(uwsDataLoader
 target_link_libraries(uwsDataLoader
                       PRIVATE uWaveServer spdlog::spdlog_header_only Boost::program_options)
 
+if (${Crow_FOUND})
+   message("Will build web server")
+   add_executable(uHTTPWaveServer
+                  src/httpWaveServer.cpp)
+   set_target_properties(uHTTPWaveServer PROPERTIES
+                         CXX_STANDARD 20
+                         CXX_STANDARD_REQUIRED YES
+                         CXX_EXTENSIONS NO)
+   target_link_libraries(uHTTPWaveServer
+                         PRIVATE uWaveServer Boost::program_options Crow::Crow spdlog::spdlog_header_only)
+   if (${ENABLE_SSL})
+      target_link_libraries(uHTTPWaveServer PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+   endif()
+   if (${ZLIB_FOUND})
+      target_link_libraries(uHTTPWaveServer PRIVATE ZLIB::ZLIB)
+   endif()
+   target_include_directories(uHTTPWaveServer
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
+   #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>)
+endif()
 #add_executable(uwsWebServer
 #               src/webServer/main.cpp
 #               src/webServer/callback.cpp
@@ -224,9 +251,9 @@ install(TARGETS uWaveServer
         FILE_SET HEADERS
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT libraries)
-#install(TARGETS uwsDataLoader #uwsWebServer
-#        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-#        COMPONENT applications)
+install(TARGETS uHTTPWaveServer #uwsWebServer
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT applications)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         COMPONENT headers)
