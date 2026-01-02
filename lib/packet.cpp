@@ -8,7 +8,6 @@
 #endif
 #include <libmseed.h>
 #include "uWaveServer/packet.hpp"
-#include "private/packetToJSON.hpp"
 
 using namespace UWaveServer;
 
