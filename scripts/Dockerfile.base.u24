@@ -135,7 +135,7 @@ WORKDIR /home/ubuntu
 #RUN cd /home/ubuntu &&\
 #    git clone https://github.com/uofuseismo/uWaveServer.git &&\
 #    cd uWaveServer &&\
-#    cmake -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+#    cmake -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON
 #    mkdir build &&\
 #    cd build &&\
 #    make install

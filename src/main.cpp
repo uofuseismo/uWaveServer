@@ -23,6 +23,7 @@
 #include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 #include "getEnvironmentVariable.hpp"
+#include "metricsExporter.hpp"
 
 [[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
 

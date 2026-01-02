@@ -16,6 +16,7 @@
 #include "lib/private/toMiniSEED.hpp"
 #include "lib/private/toJSON.hpp"
 #include "getEnvironmentVariable.hpp"
+#include "metricsExporter.hpp"
 
 std::pair<std::string, bool> parseCommandLineOptions(int, char *[]);
 void setVerbosityForSPDLOG(const int );
