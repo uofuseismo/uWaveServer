@@ -58,15 +58,15 @@ RUN cd /home/ubuntu &&\
 
 # libmseed, libslink, catch2, spdlog, nlohmann::json
 RUN cd /home/ubuntu &&\
-    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.2.2.tar.gz &&\
-    tar -xf v3.2.2.tar.gz &&\
-    rm v3.2.2.tar.gz &&\
-    cd libmseed-3.2.2 &&\
+    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.2.3.tar.gz &&\
+    tar -xf v3.2.3.tar.gz &&\
+    rm v3.2.3.tar.gz &&\
+    cd libmseed-3.2.3 &&\
     cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/usr/local &&\
     cd build &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -r libmseed-3.2.2 &&\
+    rm -r libmseed-3.2.3 &&\
     wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.2.0.tar.gz &&\
     tar -xf v4.2.0.tar.gz &&\ 
     rm v4.2.0.tar.gz &&\
@@ -92,8 +92,8 @@ RUN cd /home/ubuntu &&\
     tar -xf v1.16.0.tar.gz &&\
     rm v1.16.0.tar.gz &&\
     cd spdlog-1.16.0 &&\
-    cmake -B build_static -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/ &&\
-    cd build_static &&\
+    cmake -B build -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/ &&\
+    cd build &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
@@ -130,25 +130,12 @@ RUN cd /home/ubuntu &&\
     cd /home/ubuntu &&\
     rm -rf Crow-1.3.0/
 
-
-#    wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz &&\
-#    tar -xf v3.12.0.tar.gz &&\
-#    rm v3.12.0.tar.gz &&\
-#    cd json-3.12.0/ &&\
-#    mkdir build &&\
-#    cd build &&\
-#    cmake .. -DCMAKE_BUILD_TYPE=Release -DJSON_BuildTests=OFF &&\
-#    make &&\
-#    make install &&\
-#    cd /home/ubuntu &&\
-#    rm -r json-3.12.0
+WORKDIR /home/ubuntu
 
 #RUN cd /home/ubuntu &&\
 #    git clone https://github.com/uofuseismo/uWaveServer.git &&\
 #    cd uWaveServer &&\
+#    cmake -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
 #    mkdir build &&\
 #    cd build &&\
-#    cmake ..
-#ENV CMAKE_STATIC_BUILD_MODULE_PATH="/usr/local/soci_static/lib/cmake/soci-4.1.1/;/usr/local/spdlog_static/cmake/"
-#ENV CMAKE_SHARED_BUILD_MODULE_PATH="/usr/local/soci_shared/lib/cmake/soci-4.1.1/;/usr/local/spdlog_shared/cmake/"
-# To use cmake -DCMAKE_MODULE_PATH=${CMAKE_XXXXXX_MODULE_PATH}
+#    make install

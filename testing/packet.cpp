@@ -12,6 +12,7 @@
 #include "uWaveServer/packet.hpp"
 #include "private/toMiniSEED.hpp"
 #include "private/toJSON.hpp"
+#include "unpackMiniSEED3.hpp"
 
 TEST_CASE("uWaveServer::Packet", "[class]")
 {
@@ -186,6 +187,7 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
     const double samplingRate{100};
     const double startTime{1747326000};
     std::vector<UWaveServer::Packet> packets;
+    std::vector<int> allDataReference;
     int nPackets{5};
     int nTotalSamples{0};
     double thisStartTime{startTime};
@@ -203,6 +205,7 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
         std::vector<int> data(nSamples, 0);
         auto sign = iPacket%2 == 0 ? +1 : -1;
         std::iota(data.begin(), data.end(), sign*nTotalSamples);
+        for (const auto &di : data){allDataReference.push_back(di);}
         packet.setData(data);
         packets.push_back(packet);
 
@@ -211,10 +214,11 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
     // Let's try to serialize this thing
     SECTION("miniSEED3")
     {
-        constexpr bool useMiniSEED3 = true;
-        try
+        for (auto useMiniSEED3 : std::vector<bool> {true, false})
         {
+            //constexpr bool useMiniSEED3 = true;
             auto result = ::toMiniSEED(packets, 512, useMiniSEED3);
+            /*
             std::ofstream outFile{"test.mseed3", std::ios::binary};
             outFile.write(result.c_str(), result.size());
             //outFile << result;
@@ -226,12 +230,33 @@ TEST_CASE("UWaveServer::Packet", "[miniSEED]")
             inFile.seekg(0, std::ios::beg);
             inFile.close();
             REQUIRE(result.size() == length); 
-// TODO mseed parse
             std::filesystem::remove("test.mseed3");
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << e.what() << std::endl;
+            */
+            // Parse in memory
+            auto returnedPackets = ::unpackMiniSEED(result);
+            REQUIRE(returnedPackets.at(0).getStartTime() ==
+                    packets.at(0).getStartTime());
+            REQUIRE(returnedPackets.back().getEndTime() ==
+                    packets.back().getEndTime());
+            std::vector<int> allDataBack;
+            for (const auto &rp : returnedPackets)
+            {
+                REQUIRE(rp.getNetwork() == network);
+                REQUIRE(rp.getStation() == station);
+                REQUIRE(rp.getChannel() == channel);
+                REQUIRE(rp.getLocationCode() == locationCode);
+                REQUIRE(std::abs(rp.getSamplingRate() - samplingRate) < 1.e-12);
+                auto packetDataBack = rp.getData<int> ();
+                for (const auto &di : packetDataBack)
+                {
+                    allDataBack.push_back(di);
+                }
+            }
+            REQUIRE(allDataBack.size() == allDataReference.size());
+            for (size_t i = 0; i < allDataReference.size(); ++i)
+            {
+                CHECK(allDataBack.at(i) == allDataReference.at(i));
+            }
         }
     }
 }

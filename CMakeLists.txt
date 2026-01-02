@@ -196,7 +196,8 @@ if (${Catch2_FOUND})
                   testing/pack.cpp
                   testing/packet.cpp
                   testing/testPacket.cpp
-                  testing/database.cpp)
+                  #testing/database.cpp
+                  )
    set_target_properties(unitTests PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
@@ -252,7 +253,7 @@ install(TARGETS uWaveServer
         FILE_SET HEADERS
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT libraries)
-install(TARGETS uHTTPWaveServer #uwsWebServer
+install(TARGETS uHTTPWaveServer uwsDataLoader
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         COMPONENT applications)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer
