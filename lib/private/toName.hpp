@@ -1,9 +1,11 @@
 #ifndef PRIVATE_TO_NAME_HPP
 #define PRIVATE_TO_NAME_HPP
 #include <string>
+#include <string_view>
 #include "uWaveServer/packet.hpp"
 namespace
 {
+
 [[nodiscard]] std::string toName(const std::string &network,
                                  const std::string &station,
                                  const std::string &channel,
@@ -15,6 +17,17 @@ namespace
         name = name + "." + locationCode;
     }    
     return name;
+}
+
+[[nodiscard]] std::string toName(const std::string_view &network,
+                                 const std::string_view &station,
+                                 const std::string_view &channel,
+                                 const std::string_view &locationCode)
+{
+    return ::toName(std::string {network},
+                    std::string {station},
+                    std::string {channel},
+                    std::string {locationCode});
 }
 
 [[nodiscard]] std::string toName(const UWaveServer::Packet &packet)

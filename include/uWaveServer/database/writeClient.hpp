@@ -1,5 +1,5 @@
-#ifndef UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
-#define UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
+#ifndef UWAVE_SERVER_DATABASE_WRITE_CLIENT_DB_HPP
+#define UWAVE_SERVER_DATABASE_WRITE_CLIENT_DB_HPP
 #include <memory>
 #include <vector>
 #include <string>
@@ -16,12 +16,13 @@ namespace UWaveServer::Database
 namespace UWaveServer::Database
 {
 /// @brief Defines a database Timescale + Postgres database client.
+///        This is explicitly designed for writing threads.
 /// @copyright Ben Baker (University of Utah) distributed under the MIT license.
-class Client
+class WriteClient
 {
 public:
     /// @brief Constructs the client from the given postgres connection.
-    explicit Client(const Credentials &credentials);
+    explicit WriteClient(const Credentials &credentials);
 
     /// @brief Writes a packet to the database.
     /// @param[in] packet  A data packet with a network, station, channel,
@@ -38,22 +39,8 @@ public:
                                 const std::string &station,
                                 const std::string &channel,
                                 const std::string &locationCode) const;
-    [[nodiscard]] std::vector<UWaveServer::Packet>
-         query(const std::string &network,
-               const std::string &station,
-               const std::string &channel,
-               const std::string &locationCode,
-               const std::chrono::microseconds &startTime,
-               const std::chrono::microseconds &endTime) const;
-    [[nodiscard]] std::vector<UWaveServer::Packet>
-         query(const std::string &network,
-               const std::string &station,
-               const std::string &channel,
-               const std::string &locationCode,
-               const double startTime,
-               const double endTime) const;
     /// @result Get most up-to-date list of sensors in the database.
-    [[nodiscard]] std::set<std::string> getSensors() const;
+    //[[nodiscard]] std::set<std::string> getSensors() const;
     
     /// @brief (Re)Establishes a connection.
     void connect();
@@ -63,12 +50,12 @@ public:
     void disconnect();
 
     /// @brief Destrutcor.
-    ~Client();
+    ~WriteClient();
 
-    Client() = delete;
+    WriteClient() = delete;
 private:
-    class ClientImpl;
-    std::unique_ptr<ClientImpl> pImpl;
+    class WriteClientImpl;
+    std::unique_ptr<WriteClientImpl> pImpl;
 };
 }
 #endif 

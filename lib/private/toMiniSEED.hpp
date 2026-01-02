@@ -79,9 +79,9 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     for (const auto &packet : packets)
     {
         if (!packet.empty() &&
-            packet.haveNetwork() &&
-            packet.haveStation() &&
-            packet.haveChannel())
+            packet.hasNetwork() &&
+            packet.hasStation() &&
+            packet.hasChannel())
         {
             //nEstimateSamplesToPack = packet.size() + nEstimateSamplesToPack;
             auto encodingInteger = ::encodingInteger(packet.getDataType());
@@ -112,9 +112,9 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     for (const auto &packet : packets)
     { 
         if (!packet.empty() &&
-            packet.haveNetwork() &&
-            packet.haveStation() &&
-            packet.haveChannel())
+            packet.hasNetwork() &&
+            packet.hasStation() &&
+            packet.hasChannel())
         {
             if (msRecord)
             {
@@ -123,7 +123,7 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                 auto station = packet.getStation();
                 auto channel = packet.getChannel();
                 std::string locationCode;
-                if (packet.haveLocationCode())
+                if (packet.hasLocationCode())
                 {
                     locationCode = packet.getLocationCode();
                 }

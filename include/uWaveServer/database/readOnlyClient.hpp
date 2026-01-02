@@ -1,5 +1,5 @@
-#ifndef UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
-#define UWAVE_SERVER_DATABASE_CLIENT_DB_HPP
+#ifndef UWAVE_SERVER_DATABASE_READ_ONLY_CLIENT_HPP
+#define UWAVE_SERVER_DATABASE_READ_ONLY_CLIENT_HPP
 #include <memory>
 #include <vector>
 #include <string>
@@ -17,20 +17,11 @@ namespace UWaveServer::Database
 {
 /// @brief Defines a database Timescale + Postgres database client.
 /// @copyright Ben Baker (University of Utah) distributed under the MIT license.
-class Client
+class ReadOnlyClient
 {
 public:
     /// @brief Constructs the client from the given postgres connection.
-    explicit Client(const Credentials &credentials);
-
-    /// @brief Writes a packet to the database.
-    /// @param[in] packet  A data packet with a network, station, channel,
-    ///                    and location code as well as a start time, end time,
-    ///                    sampling rate, and time series.
-    /// @throws std::invalid_argument if the packet is malformed.
-    /// @throws std::runtime_error if there is another error while writing
-    ///         the data.
-    void write(const UWaveServer::Packet &packet);
+    explicit ReadOnlyClient(const Credentials &credentials);
 
     /// @result True indicates the network, station, channel, and locationCode
     ///         packets are in the database.
@@ -63,12 +54,12 @@ public:
     void disconnect();
 
     /// @brief Destrutcor.
-    ~Client();
+    ~ReadOnlyClient();
 
-    Client() = delete;
+    ReadOnlyClient() = delete;
 private:
-    class ClientImpl;
-    std::unique_ptr<ClientImpl> pImpl;
+    class ReadOnlyClientImpl;
+    std::unique_ptr<ReadOnlyClientImpl> pImpl;
 };
 }
 #endif 
