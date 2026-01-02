@@ -28,7 +28,8 @@ public:
     [[nodiscard]] bool contains(const std::string &network,
                                 const std::string &station,
                                 const std::string &channel,
-                                const std::string &locationCode) const;
+                                const std::string &locationCode,
+                                const bool checkCacheOnly = false) const;
     [[nodiscard]] std::vector<UWaveServer::Packet>
          query(const std::string &network,
                const std::string &station,

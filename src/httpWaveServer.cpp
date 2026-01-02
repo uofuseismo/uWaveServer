@@ -17,9 +17,51 @@
 #include "lib/private/toJSON.hpp"
 #include "getEnvironmentVariable.hpp"
 #include "metricsExporter.hpp"
+#include "serverMetrics.hpp"
+
+#define APPLICATION_NAME "uHTTPWaveServer"
+
+namespace 
+{
+
+struct ProgramOptions
+{
+    std::string applicationName{APPLICATION_NAME};
+    std::string prometheusURL{"localhost:9020"}; 
+
+    std::string crowServerName{"localhost"};
+    std::string crowBindAddress{"127.0.0.1"};
+
+    std::string databaseUser{
+        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_USER")
+    };
+    std::string databasePassword{
+        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")
+    };  
+    std::string databaseName{
+        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")
+    };  
+    std::string databaseHost{
+        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")
+    };  
+    std::string databaseSchema{
+        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "") 
+    };  
+    uint16_t databasePort{
+        ::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)
+    };
+    std::set<std::string> databaseSchemas;
+
+    int verbosity{3};
+    uint16_t crowPort{8000}; 
+    uint16_t nThreads{2}; // Min is 2 for crow
+};
 
 std::pair<std::string, bool> parseCommandLineOptions(int, char *[]);
 void setVerbosityForSPDLOG(const int );
+ProgramOptions parseIniFile(const std::filesystem::path &);
+
+}
 
 namespace
 {
@@ -40,34 +82,6 @@ std::string getOriginalKey(
 }
 
 }
-
-struct ProgramOptions
-{
-    std::string applicationName{"uHTTPWaveServer"};
-    std::string crowServerName{"localhost"};
-    std::string crowBindAddress{"127.0.0.1"};
-
-    std::string databaseUser{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_USER")
-    };
-    std::string databasePassword{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")
-    };
-    std::string databaseName{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")
-    };
-    std::string databaseHost{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")
-    };
-    std::string databaseSchema{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "")
-    };
-    uint16_t databasePort{
-        ::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)
-    };
-    uint16_t crowPort{8000}; 
-    uint16_t nThreads{2}; // Min is 2 for crow
-};
 
 /// Converts YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM:SS.XXXXXX
 /// to seconds since the epoch.
@@ -176,21 +190,47 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    // Read the program properties
     ::ProgramOptions programOptions;
-setVerbosityForSPDLOG(4);
+    try 
+    {   
+        programOptions = ::parseIniFile(iniFile);
+    }   
+    catch (const std::exception &e) 
+    {   
+        spdlog::error(e.what());
+        return EXIT_FAILURE;
+    }   
+    ::setVerbosityForSPDLOG(programOptions.verbosity);
+
+    try
+    {
+        ::initializeMetrics(programOptions.prometheusURL);
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::critical("Failed to initalize metrics with "
+                       + std::string {e.what()});
+        return EXIT_FAILURE;
+    }
+
+    mObservableSuccessResponses["stream-query"] = 0;
+    mObservableServerErrorResponses["stream-query"] = 0;
+    mObservableClientErrorResponses["stream-query"] = 0;
 
     UWaveServer::Database::Credentials databaseCredentials;
     databaseCredentials.setUser(programOptions.databaseUser);
     databaseCredentials.setPassword(programOptions.databasePassword);
-    databaseCredentials.setHost("localhost"); //programOptions.databaseHost);
-    databaseCredentials.setPort(5432); //programOptions.databasePort);
-    databaseCredentials.setDatabaseName("uwsdevdb"); //programOptions.databaseName);
+    databaseCredentials.setHost(programOptions.databaseHost);
+    databaseCredentials.setPort(programOptions.databasePort);
+    databaseCredentials.setDatabaseName(programOptions.databaseName);
     databaseCredentials.setApplication(programOptions.applicationName);
     databaseCredentials.setSchema("ynp");
 
-    UWaveServer::Database::ReadOnlyClient client{databaseCredentials};
+    std::vector<std::unique_ptr<UWaveServer::Database::ReadOnlyClient>> clients;
+    auto client = std::make_unique<UWaveServer::Database::ReadOnlyClient> (databaseCredentials);
+    clients.push_back(std::move(client));
 
-    
     CustomLogger customLogger;
     crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
@@ -204,13 +244,14 @@ setVerbosityForSPDLOG(4);
 
     // Unpack something like:
     // host/query?network=UU&station=BGU&channel=HHZ&location=01&starttime=1235&endtime=678910&nodata=404
-    CROW_ROUTE(app, "/query")
+    CROW_ROUTE(app, "/stream-query")
     ([&](const crow::request &request)
     {
         // Make the keys lowercase
         auto originalKeys = request.url_params.keys();
         if (originalKeys.empty())
         {
+            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
             crow::response response;
             response.code = 400;
             response.body = "No query parameters specified - try something like network=UU&station=BGU&channel=HHZ&location=01&startime=1234&endtime=5678&nodata=204";
@@ -241,6 +282,7 @@ setVerbosityForSPDLOG(4);
         }
         if (network.empty())
         {
+            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
             crow::response response;
             response.code = 400;
             response.body = "Network code must be supplied in net= or network= parameters - e.g., net=UU";
@@ -258,6 +300,7 @@ setVerbosityForSPDLOG(4);
         }
         if (station.empty())
         {
+            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
             crow::response response;
             response.code = 400;
             response.body = "Station name must be supplied in sta= or station= parameters  e.g., sta=CTU";
@@ -316,6 +359,8 @@ setVerbosityForSPDLOG(4);
                     }
                     catch (...)
                     {
+                        mObservableClientErrorResponses.add_or_assign(
+                            "stream-query", 1);
                         crow::response response;
                         response.code = 400;
                         response.body = startTimeKey + "=" 
@@ -348,6 +393,8 @@ setVerbosityForSPDLOG(4);
                     }
                     catch (...)
                     {
+                        mObservableClientErrorResponses.add_or_assign(
+                           "stream-query", 1);
                         crow::response response;
                         response.code = 400;
                         response.body = endTimeKey + "=" + 
@@ -361,13 +408,14 @@ setVerbosityForSPDLOG(4);
 //std::cout << std::setprecision(16) << startTime << " " << endTime << " " << endTime - startTime << std::endl;
         if (startTime > endTime)
         {
+            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
             crow::response response;
             response.code = 400;
             response.body = "startime cannot exceed endtime";
             return response;
         }
 
-        std::string format{"json"};
+        std::string format{"miniseed3"};
         auto formatKey
              = ::getOriginalKey(lowerCaseToOriginalKeys, {"format"}); 
         bool wantMiniSEED3{true};
@@ -382,6 +430,8 @@ setVerbosityForSPDLOG(4);
                 format != "miniseed3" &&
                 format != "json")
             {
+                mObservableClientErrorResponses.add_or_assign(
+                    "stream-query", 1);
                 crow::response response;
                 response.code = 400;
                 response.body
@@ -406,6 +456,8 @@ setVerbosityForSPDLOG(4);
                 else
                 {
                     spdlog::critical("Unhandled format " + format);
+                    mObservableServerErrorResponses.add_or_assign(
+                        "stream-query", 1);
                     crow::response response;
                     response.code = 500;
                     response.body = "server could not properly process format";
@@ -441,11 +493,41 @@ setVerbosityForSPDLOG(4);
             auto nowMuSeconds
                 = std::chrono::time_point_cast<std::chrono::microseconds>
                   (now).time_since_epoch();
-            auto packets
-                = client.query(network, station, channel, locationCode,
-                               startTime, endTime);
+            std::vector<UWaveServer::Packet> packets;
+            // Two-pass loop - first check our caches
+            for (int strategy = 0; strategy < 2; ++strategy)
+            {
+                for (const auto &client : clients)
+                {
+                    if (strategy == 0)
+                    {
+                        constexpr bool checkCacheOnly{true};
+                        if (client->contains(network, station,
+                                             channel, locationCode,
+                                             checkCacheOnly))
+                        {
+                            packets
+                               = client->query(network, station,
+                                               channel, locationCode,
+                                               startTime, endTime);
+                        }
+                    }
+                    else
+                    {
+                        // This will actually search the sensors table and
+                        // potentially add the sensor to the cache
+                        packets
+                             = client->query(network, station,
+                                             channel, locationCode,
+                                             startTime, endTime);
+                    }
+                }
+                if (!packets.empty()){break;}
+            }
             if (packets.empty())
             {
+                // I did my job right
+                mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 spdlog::debug("No data packets found in query");
                 crow::response response;
                 response.code = noData;
@@ -455,16 +537,20 @@ setVerbosityForSPDLOG(4);
             constexpr int recordLength{512}; 
             if (format == "json")
             {
+                mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 auto payload = ::packetsToCrowJSON(packets);
                 crow::response response;
-                response.set_header("Content-Type", "application/octet-stream");
+                response.set_header("Content-Type", "application/json");
                 response.code = 200;
                 response.body = payload.dump();
                 return response;
             }
             else
             {
+                constexpr int recordLength{512};
+                mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 auto payload = ::toMiniSEED(packets, recordLength, wantMiniSEED3);
+spdlog::info("returning : " +  std::to_string (packets.size()) + " with payload size " + std::to_string (payload.size()));
                 crow::response response;
                 response.set_header("Content-Type", "application/octet-stream");
                 response.code = 200;
@@ -475,6 +561,7 @@ setVerbosityForSPDLOG(4);
         }
         catch (const std::exception &e)
         {
+            mObservableServerErrorResponses.add_or_assign("stream-query", 1);
             spdlog::warn(e.what());
             crow::response response;
             response.code = 500;
@@ -482,6 +569,7 @@ setVerbosityForSPDLOG(4);
             return response;
         }
 
+        mObservableServerErrorResponses.add_or_assign("stream-query", 1);
         crow::response response;
         response.code = 500;
         response.body = "Unhandled server route";
@@ -494,15 +582,19 @@ setVerbosityForSPDLOG(4);
            .port(programOptions.crowPort)
            .server_name(programOptions.crowServerName)
            .concurrency(programOptions.nThreads)
-           //.use_compression(crow::compression::algorithm::ZLIB)
+//#ifdef ENABLE_COMPRESSION
+//           .use_compression(crow::compression::algorithm::ZLIB)
+//#endif
            //.multithreaded()
            .run();
+        cleanupMetrics();
         return EXIT_SUCCESS;
     }
     catch (const std::exception &e)
     {
         spdlog::critical("uHTTPWebServer failed with "
                        + std::string {e.what()});
+        cleanupMetrics();
         return EXIT_FAILURE;
     }
 }
@@ -510,6 +602,8 @@ setVerbosityForSPDLOG(4);
 ///--------------------------------------------------------------------------///
 ///                            Utility Functions                             ///
 ///--------------------------------------------------------------------------///
+namespace
+{
 
 void setVerbosityForSPDLOG(const int verbosity)
 {
@@ -559,3 +653,71 @@ Allowed options)""");
     return {iniFile, false};
 }
 
+ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
+{
+    ::ProgramOptions options;
+    if (!std::filesystem::exists(iniFile)){return options;}
+    // Parse the initialization file
+    boost::property_tree::ptree propertyTree;
+    boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
+
+    // Application name
+    options.applicationName
+        = propertyTree.get<std::string> ("General.applicationName",
+                                         options.applicationName);
+    if (options.applicationName.empty())
+    {   
+        options.applicationName = APPLICATION_NAME;
+    }   
+    options.verbosity
+        = propertyTree.get<int> ("General.verbosity", options.verbosity);
+
+    // Prometheus
+    uint16_t prometheusPort
+        = propertyTree.get<uint16_t> ("Prometheus.port", 9200);
+    std::string prometheusHost
+        = propertyTree.get<std::string> ("Prometheus.host", "localhost");
+    if (!prometheusHost.empty())
+    {   
+        options.prometheusURL = prometheusHost + ":" 
+                              + std::to_string(prometheusPort);
+    }
+
+    // Crow options
+
+    // Database
+    options.databaseUser
+        = propertyTree.get<std::string> ("Database.user", 
+                                         options.databaseUser);
+    if (options.databaseUser.empty())
+    {
+        throw std::invalid_argument("Must specify database user as UWAVE_SERVER_DATABASE_READ_ONLY_USER or as Database.user in ini file");
+    }
+    options.databasePassword
+        = propertyTree.get<std::string> ("Database.password",
+                                         options.databasePassword);
+    if (options.databasePassword.empty())
+    {   
+        throw std::invalid_argument("Must specify database password as UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD or as Database.password in ini file");
+    }
+    options.databaseName
+        = propertyTree.get<std::string> ("Database.name",
+                                         options.databaseName);
+    if (options.databaseName.empty())
+    {
+        throw std::invalid_argument("Must specify database name as UWAVE_SERVER_DATABASE_NAME or as Database.name in ini file");
+    }
+    options.databaseHost
+        = propertyTree.get<std::string> ("Database.host",
+                                         options.databaseHost);
+    if (options.databaseHost.empty())
+    {
+        throw std::invalid_argument("Must specify database host as UWAVE_SERVER_DATABASE_HOST or as Database.host in ini file");
+    }
+    options.databasePort
+        = propertyTree.get<uint16_t> ("Database.port", options.databasePort);
+
+    return options;
+}
+
+}

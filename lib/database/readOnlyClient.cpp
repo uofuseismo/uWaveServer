@@ -448,7 +448,8 @@ public:
         getSensorIdentifierAndTableName(const std::string &network,
                                         const std::string &station,
                                         const std::string &channel,
-                                        const std::string &locationCode) const
+                                        const std::string &locationCode,
+                                        const bool checkCacheOnly) const
     {
         auto name = ::toName(network, station, channel, locationCode);
         // Maybe we already have this channel 
@@ -459,6 +460,7 @@ public:
         {
             return index->second;
         }
+        if (checkCacheOnly){return std::pair {-1, ""};}
         }
         // Okay - let's look in the database for it
         constexpr pqxx::zview query
@@ -505,14 +507,16 @@ public:
     }
     [[nodiscard]]
     std::pair<int, std::string>
-        getSensorIdentifierAndTableName(const Packet &packet) const
+        getSensorIdentifierAndTableName(const Packet &packet,
+                                        const bool checkCacheOnly) const
     {
         const auto network = packet.getNetworkReference();
         const auto station = packet.getStationReference();
         const auto channel = packet.getChannelReference();
         const auto locationCode = packet.getLocationCodeReference();
         return getSensorIdentifierAndTableName(network, station,
-                                               channel, locationCode);
+                                               channel, locationCode,
+                                               checkCacheOnly);
     }
     // Initialize my cache of sensors
     void initializeSensors()
@@ -534,7 +538,8 @@ public:
     bool contains(const std::string &network,
                   const std::string &station,
                   const std::string &channel,
-                  const std::string &locationCode)
+                  const std::string &locationCode,
+                  const bool checkCacheOnly)
     {
         // Ensure we're connected
         if (!isConnected())
@@ -546,7 +551,8 @@ public:
         // Check the sensor is there 
         auto sensorIdentifierAndTableName
              = getSensorIdentifierAndTableName(network, station,
-                                               channel, locationCode); // Throws
+                                               channel, locationCode,
+                                               checkCacheOnly); // Throws
         if (sensorIdentifierAndTableName.first < 0)
         {
             return false;
@@ -622,9 +628,11 @@ public:
             reconnect(); // Throws
         }
         // Check the sensor is there
+        constexpr bool checkCacheOnly{false};
         auto [sensorIdentifier, tableName]
              = getSensorIdentifierAndTableName(network, station,
-                                               channel, locationCode); // Throws
+                                               channel, locationCode,
+                                               checkCacheOnly); // Throws
         if (sensorIdentifier < 0)
         {
             throw std::invalid_argument(
@@ -816,7 +824,8 @@ std::set<std::string> ReadOnlyClient::getSensors() const
 bool ReadOnlyClient::contains(const std::string &networkIn,
                               const std::string &stationIn,
                               const std::string &channelIn,
-                              const std::string &locationCodeIn) const
+                              const std::string &locationCodeIn,
+                              const bool checkCacheOnly) const
 {
     auto network = ::convertString(networkIn);
     if (network.empty())
@@ -834,6 +843,8 @@ bool ReadOnlyClient::contains(const std::string &networkIn,
         throw std::invalid_argument("Channel is empty");
     }
     auto locationCode = ::convertString(locationCodeIn);
-    return pImpl->contains(network, station, channel, locationCode);
+    return pImpl->contains(network, station, 
+                           channel, locationCode,
+                           checkCacheOnly);
 }
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(uWaveServer VERSION 0.1.0 LANGUAGES CXX)
+project(uWaveServer VERSION 0.2.0 LANGUAGES CXX)
 enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
@@ -159,7 +159,11 @@ if (${Crow_FOUND})
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO)
    target_link_libraries(uHTTPWaveServer
-                         PRIVATE uWaveServer Boost::program_options Crow::Crow spdlog::spdlog_header_only)
+                         PRIVATE uWaveServer
+                                 Boost::program_options
+                                 Crow::Crow
+                                 spdlog::spdlog_header_only
+                                 opentelemetry-cpp::prometheus_exporter)
    if (${ENABLE_SSL})
       target_link_libraries(uHTTPWaveServer PRIVATE OpenSSL::SSL OpenSSL::Crypto)
    endif()
