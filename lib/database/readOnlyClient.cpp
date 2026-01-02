@@ -11,7 +11,6 @@
 #endif
 #include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
 #include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
