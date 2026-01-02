@@ -19,7 +19,7 @@
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
 #include "uWaveServer/dataClient/streamSelector.hpp"
-#include "uWaveServer/database/client.hpp"
+#include "uWaveServer/database/writeClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 #include "getEnvironmentVariable.hpp"
@@ -94,7 +94,7 @@ public:
                 databaseCredentials.setSchema(options.databaseSchema);
             }
             auto databaseClient 
-                = std::make_unique<UWaveServer::Database::Client>
+                = std::make_unique<UWaveServer::Database::WriteClient>
                   (databaseCredentials);
             mDatabaseClients.push_back(std::move(databaseClient)); 
         }
@@ -521,7 +521,7 @@ public:
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mShallowPacketSanitizerQueue;
     //::ThreadSafeBoundedQueue<UWaveServer::Packet> mDeepPacketSanitizerQueue;
     ::ThreadSafeBoundedQueue<UWaveServer::Packet> mWritePacketToDatabaseQueue;
-    std::vector<std::unique_ptr<UWaveServer::Database::Client>>
+    std::vector<std::unique_ptr<UWaveServer::Database::WriteClient>>
         mDatabaseClients;
     std::vector<std::unique_ptr<UWaveServer::DataClient::IDataClient>>
         mDataAcquisitionClients;

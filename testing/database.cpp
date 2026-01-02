@@ -5,7 +5,8 @@
 #include <vector>
 #include <random>
 #include <pqxx/pqxx>
-#include "uWaveServer/database/client.hpp"
+#include "uWaveServer/database/writeClient.hpp"
+#include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
 #include "uWaveServer/packet.hpp"
 #include <catch2/catch_test_macros.hpp>
@@ -70,28 +71,41 @@ TEST_CASE("uWaveServer::Database", "[connect]")
 
 TEST_CASE("uWaveServer::Database", "[client]")
 {
-    UWaveServer::Database::Credentials credentials;
-    credentials.setUser(TESTING_READ_WRITE_USER);
-    credentials.setPassword(TESTING_READ_WRITE_PASSWORD);
-    credentials.setHost(TESTING_HOST); 
-    credentials.setDatabaseName(TESTING_DATABASE_NAME);
-    credentials.setPort(TESTING_PORT);
-    credentials.setSchema("ynp");
-    credentials.setApplication(TESTING_APPLICATION);
-    credentials.enableReadWrite();
-    UWaveServer::Database::Client client{credentials};
-auto sensors = client.getSensors();
-if (client.contains("WY", "YLT", "HHZ", "01"))
+    UWaveServer::Database::Credentials writeCredentials;
+    writeCredentials.setUser(TESTING_READ_WRITE_USER);
+    writeCredentials.setPassword(TESTING_READ_WRITE_PASSWORD);
+    writeCredentials.setHost(TESTING_HOST); 
+    writeCredentials.setDatabaseName(TESTING_DATABASE_NAME);
+    writeCredentials.setPort(TESTING_PORT);
+    writeCredentials.setSchema("ynp");
+    writeCredentials.setApplication(TESTING_APPLICATION);
+    writeCredentials.enableReadWrite();
+    UWaveServer::Database::WriteClient writeClient{writeCredentials};
+
+    UWaveServer::Database::Credentials readCredentials;
+    readCredentials.setUser(TESTING_READ_WRITE_USER);
+    readCredentials.setPassword(TESTING_READ_WRITE_PASSWORD);
+    readCredentials.setHost(TESTING_HOST); 
+    readCredentials.setDatabaseName(TESTING_DATABASE_NAME);
+    readCredentials.setPort(TESTING_PORT);
+    readCredentials.setSchema("ynp");
+    readCredentials.setApplication(TESTING_APPLICATION);
+    readCredentials.enableReadOnly();
+    UWaveServer::Database::ReadOnlyClient readClient{readCredentials};
+
+auto sensors = readClient.getSensors();
+if (readClient.contains("WY", "YLT", "HHZ", "01"))
 {
   std::cout << "have it" << std::endl;
 }
-if (!client.contains("WY", "YLT", "EHZ", "01"))
+if (!readClient.contains("WY", "YLT", "EHZ", "01"))
 {
  std::cout << "dont have it" << std::endl;
 }
+
  UWaveServer::Packet packet;
  const std::string network{"WY"};
- const std::string station{"YBB"};
+ const std::string station{"YHN"};
  const std::string channel{"HHZ"};
  const std::string locationCode{"01"};
  packet.setNetwork(network);
@@ -105,7 +119,7 @@ if (!client.contains("WY", "YLT", "EHZ", "01"))
  packet.setData(samples);
  try
  {
-  client.write(packet); 
+  writeClient.write(packet); 
  }
  catch (const std::exception &e)
  {
@@ -116,7 +130,7 @@ return;
  {
   double t0 = 1766102400;
   double t1 = 1766102400 + 100;
-  auto packets = client.query(network, station, channel, locationCode, t0, t1);
+  auto packets = readClient.query(network, station, channel, locationCode, t0, t1);
   for (const auto &thisPacket : packets)
   {
       REQUIRE(thisPacket.getStartTime() == packet.getStartTime());

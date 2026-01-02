@@ -813,3 +813,28 @@ std::set<std::string> ReadOnlyClient::getSensors() const
     }
     return sensors;
 }
+
+bool ReadOnlyClient::contains(const std::string &networkIn,
+                              const std::string &stationIn,
+                              const std::string &channelIn,
+                              const std::string &locationCodeIn) const
+{
+    auto network = ::convertString(networkIn);
+    if (network.empty())
+    {   
+        throw std::invalid_argument("Network is empty");
+    }   
+    auto station = ::convertString(stationIn);
+    if (station.empty())
+    {   
+        throw std::invalid_argument("Station is empty");
+    }
+    auto channel = ::convertString(channelIn);
+    if (channel.empty())
+    {
+        throw std::invalid_argument("Channel is empty");
+    }
+    auto locationCode = ::convertString(locationCodeIn);
+    return pImpl->contains(network, station, channel, locationCode);
+}
+

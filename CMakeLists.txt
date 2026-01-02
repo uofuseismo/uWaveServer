@@ -64,7 +64,7 @@ configure_file(${CMAKE_SOURCE_DIR}/lib/private/version.hpp.in
 set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
     lib/dataClient/streamSelector.cpp
-    lib/database/client.cpp
+    lib/database/writeClient.cpp
     lib/database/readOnlyClient.cpp
     lib/database/credentials.cpp
     lib/testDuplicatePacket.cpp
@@ -106,7 +106,8 @@ target_sources(uWaveServer
                FILES 
                   include/uWaveServer/dataClient/dataClient.hpp
                   include/uWaveServer/dataClient/streamSelector.hpp
-                  include/uWaveServer/database/client.hpp
+                  include/uWaveServer/database/writeClient.hpp
+                  include/uWaveServer/database/readOnlyClient.hpp
                   include/uWaveServer/database/credentials.hpp
                   include/uWaveServer/testDuplicatePacket.hpp
                   include/uWaveServer/testExpiredPacket.hpp

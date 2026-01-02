@@ -540,12 +540,12 @@ R"""(
                                                 + " SET(timescaledb.enable_columnstore, timescaledb.segmentby = 'sensor_identifier', timescaledb.orderby = 'start_time');";
             const std::string createChunkSkipping = "SELECT enable_chunk_skipping('"
                                                   + dataTableName
-                                                  + "', 'sensor_identifier', if_not_exists => TRUE)";
+                                                  + "', 'sensor_identifier')";
             const std::string createRetention = "SELECT add_retention_policy('"
                                               + dataTableName
                                               + "', INTERVAL '"
                                               + std::to_string(5)
-                                              + " days', if_not_exists => TRUE)";
+                                              + " days')";
 
 
  
