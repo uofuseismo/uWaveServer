@@ -24,9 +24,15 @@ jobs:
             if [ -d build ]; then
                rm -rf build
             fi
-            mkdir build
-            cd build
-            cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local/
+            #export CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/usr/local/grpc/lib/cmake/absl:/usr/local/grpc/lib/cmake/protobuf:/usr/local/grpc/lib/cmake/utf8_range
+            cmake -B build \
+                  -DCMAKE_CXX_COMPILER=clang++ \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DBUILD_SHARED_LIBS=OFF \
+                  -DENABLE_COMPRESSION=ON \
+                  -DENABLE_SSL=ON \
+                  -DCMAKE_INSTALL_PREFIX=/usr/local/ \
+                  -DBUILD_CONTAINER=ON
       - run:
           name: "Build the code"
           command: |
@@ -49,10 +55,21 @@ jobs:
            command: |
              cd build
              mkdir -p /tmp/artifacts
+             mkdir -p /tmp/workspace
              cpack -B /tmp/artifacts
              rm -rf /tmp/artifacts/_CPack_Packages
+             make uWaveServer-deb
+             mv *-Linux.deb /tmp/workspace/
+             mv Dockerfile.deb /tmp/workspace/
+             ls /tmp/workspace/
       - store_artifacts:
           path: /tmp/artifacts
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - Dockerfile.deb
+            - uWaveServer-*
+
 
 # Orchestrate jobs using workflows
 # See: https://circleci.com/docs/workflows/ & https://circleci.com/docs/configuration-reference/#workflows

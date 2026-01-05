@@ -3,7 +3,8 @@ project(uWaveServer VERSION 0.2.0 LANGUAGES CXX)
 enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
-option(ENABLE_COMPRESSION "Enable copmression for the web server backend" ON)
+option(ENABLE_COMPRESSION "Enable compression for the web server backend" ON)
+option(BUILD_CONTAINER "Builds a container for CI/CD workflows" ON)
 #option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
@@ -231,6 +232,29 @@ endif()
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
 #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 #target_link_libraries(binaryTest PRIVATE uWaveServer spdlog::spdlog_header_only Boost::program_options Boost::url SOCI::Core SOCI::PostgreSQL)
+
+##########################################################################################
+#                                        Containers                                      #
+##########################################################################################
+if (${BUILD_CONTAINER})
+   include(CPackComponent)
+   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/scripts/Dockerfile.deb.in
+                  ${CMAKE_CURRENT_BINARY_DIR}/Dockerfile.deb @ONLY)
+   add_custom_target(${PROJECT_NAME}-deb
+                     COMMENT "Creating deb file for ${PROJECT_NAME}"
+                     COMMAND ${CMAKE_CPACK_COMMAND} -G DEB 
+                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+   add_dependencies(${PROJECT_NAME}-deb uwsDataLoader uHTTPWaveServer)
+   find_program(buildah_EXECUTABLE buildah)
+   if (buildah_EXECUTABLE)
+      add_custom_target(buildah
+                        COMMENT "Preparing the container with buildah"
+                        COMMAND ${buildah_EXECUTABLE} bud -t uwaveserver:${PROJECT_VERSION} -t uwaveserver:latest -f ./Dockerfile.deb
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+      add_dependencies(buildah ${PROJECT_NAME}-deb)
+   endif()
+endif()
+
 
 ##########################################################################################
 #                                      Installation                                      #
