@@ -11,7 +11,7 @@ jobs:
     docker:
       # Specify the version you desire here
       # See: https://circleci.com/developer/images/image/cimg/base
-      - image: quay.io/uuss/uwaveserver_build
+      - image: quay.io/uuss/uwaveserverbase
     resource_class: small
 
     # Add steps to the job
