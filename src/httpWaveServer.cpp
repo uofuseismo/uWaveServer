@@ -136,6 +136,109 @@ std::string getOriginalKey(
     return time;
 }
 
+[[nodiscard]] crow::json::wvalue documentStreamQuery()
+{
+    crow::json::wvalue network;
+    network["in"] = "query";
+    network["name"] = "net[work]";
+    network["required"] = true;
+    network["schema"] = {{"type", "string"}};
+    network["description"] = "The network code - e.g., UU.";
+
+    crow::json::wvalue station;
+    station["in"] = "query";
+    station["name"] = "sta[tion]";
+    station["required"] = true;
+    station["schema"] = {{"type", "string"}};
+    station["description"] = "The station name - e.g., CTU.";
+
+    crow::json::wvalue channel;
+    channel["in"] = "query";
+    channel["name"] = "chan[nel]";
+    channel["required"] = true;
+    channel["schema"] = {{"type", "string"}};
+    channel["description"] = "The channel code - e.g., HHZ.";
+
+    crow::json::wvalue locationCode;
+    locationCode["in"] = "query";
+    locationCode["name"] = "loc[ation]";
+    locationCode["required"] = true;
+    locationCode["schema"] = {{"type", "string"}};
+    locationCode["description"] = "The location code - e.g., 01.  For unspecified location codes use '--'";
+
+    crow::json::wvalue startTime;
+    startTime["in"] = "query";
+    startTime["name"] = "start[time]";
+    startTime["required"] = true;
+    auto startTimeType = crow::json::wvalue::list( {"string", "double"} );
+    crow::json::wvalue startTimeSchema;
+    startTimeSchema["type"] = std::move(startTimeType);
+    startTime["schema"] = std::move(startTimeSchema);
+    startTime["description"] = "The UTC start time of the query.  This can be expressed as 'YYYY-MM-DDTHH:MM:SS', 'YYYY-MM-DDTHH:MM:SS.MMMMMM', or seconds since the epoch.";
+
+    crow::json::wvalue endTime;
+    endTime["in"] = "query";
+    endTime["name"] = "end[time]";
+    endTime["required"] = true;
+    auto endTimeType = crow::json::wvalue::list( {"string", "double"} );
+    crow::json::wvalue endTimeSchema;
+    endTimeSchema["type"] = std::move(endTimeType);
+    endTime["schema"] = std::move(endTimeSchema);
+    endTime["description"] = "The UTC end time of the query.  This can be expressed as 'YYYY-MM-DDTHH:MM:SS', 'YYYY-MM-DDTHH:MM:SS.MMMMMM', or seconds since the epoch.  This must be greater than the start time.";
+
+    crow::json::wvalue format;
+    format["in"] = "query";
+    format["name"] = "format";
+    format["required"] = false;
+    format["schema"] = {{"type", "string"}};
+    format["description"] = "The output format - this can be json, mseed2, miniseed2, mseed3, miniseed3.  The default is miniseed2.";
+
+    crow::json::wvalue noData;
+    noData["in"] = "query";
+    noData["name"] = "format";
+    noData["required"] = false;
+    noData["schema"] = {{"type", "integer"}};
+    noData["description"] = "The error code to return if no data is found.  This can be 204 or 404.  The default is 204.";
+
+    crow::json::wvalue::list parameters;
+    parameters.push_back(std::move(network));
+    parameters.push_back(std::move(station));
+    parameters.push_back(std::move(channel));
+    parameters.push_back(std::move(locationCode));
+    parameters.push_back(std::move(startTime));
+    parameters.push_back(std::move(endTime));
+    parameters.push_back(std::move(format));
+    parameters.push_back(std::move(noData));
+
+    /*
+    crow::json::wvalue::list responses;
+    crow::json::wvalue goodResponse;
+    goodResponse["description"] = "Waveform data corresponding to the query";
+    */ 
+      
+    crow::json::wvalue result;
+    result["operationId"] = "getStream";
+    result["parameters"] = std::move(parameters);
+    return result;
+} 
+
+crow::json::wvalue documentAPI()
+{
+    crow::json::wvalue result;
+    result["openapi"] = "3.0.0";
+    result["info"] = { {"title", "dataselect"}, {"version", "0.0.1"} };
+    crow::json::wvalue streamQueryPath;
+    crow::json::wvalue streamQueryPathDescription;
+    streamQueryPathDescription["get"] = std::move(documentStreamQuery());
+  
+    streamQueryPath["stream-query?net={network}&sta={station}&cha={channel}&loc={location}&start={startTime]&end={endTime}&nodata={noData}&format={format}"] = std::move(streamQueryPathDescription);
+
+    crow::json::wvalue::list paths;
+    paths.push_back(std::move(streamQueryPath));
+   
+    result["paths"] = std::move(paths);
+    return result;
+}
 
 class CustomLogger : public crow::ILogHandler
 {
@@ -239,11 +342,15 @@ int main(int argc, char *argv[])
     ([]()
     {
         spdlog::debug("Default route");
-        return crow::response(200);
+        crow::response response;
+        response.code = 200;
+        response.set_header("Content-Type", "application/json");
+        response.body = documentAPI().dump(); 
+        return response;//crow::response(200);
     });
 
     // Unpack something like:
-    // host/query?network=UU&station=BGU&channel=HHZ&location=01&starttime=1235&endtime=678910&nodata=404
+    // host/stream-query?network=UU&station=BGU&channel=HHZ&location=01&starttime=1235&endtime=678910&nodata=404
     CROW_ROUTE(app, "/stream-query")
     ([&](const crow::request &request)
     {
@@ -415,10 +522,10 @@ int main(int argc, char *argv[])
             return response;
         }
 
-        std::string format{"miniseed3"};
+        std::string format{"miniseed2"};
         auto formatKey
              = ::getOriginalKey(lowerCaseToOriginalKeys, {"format"}); 
-        bool wantMiniSEED3{true};
+        bool wantMiniSEED3{false};
         if (request.url_params.get(formatKey) != nullptr)
         {
             format = request.url_params.get(formatKey);
@@ -489,10 +596,7 @@ int main(int argc, char *argv[])
         {
             // TODO histogram metrics
             spdlog::debug("Unpacking data");
-            auto now = std::chrono::high_resolution_clock::now();
-            auto nowMuSeconds
-                = std::chrono::time_point_cast<std::chrono::microseconds>
-                  (now).time_since_epoch();
+            auto queryStartTime = std::chrono::high_resolution_clock::now();
             std::vector<UWaveServer::Packet> packets;
             // Two-pass loop - first check our caches
             for (int strategy = 0; strategy < 2; ++strategy)
@@ -524,6 +628,13 @@ int main(int argc, char *argv[])
                 }
                 if (!packets.empty()){break;}
             }
+            auto queryEndTime = std::chrono::high_resolution_clock::now();
+            double queryDuration
+                = std::chrono::duration_cast<std::chrono::microseconds>
+                  (queryEndTime - queryStartTime).count()*1.e-6;
+            spdlog::info("Query duration and unpack "
+                       + std::to_string(queryDuration)
+                       + " (s)");
             if (packets.empty())
             {
                 // I did my job right
@@ -549,12 +660,13 @@ int main(int argc, char *argv[])
             {
                 constexpr int recordLength{512};
                 mObservableSuccessResponses.add_or_assign("stream-query", 1);
-                auto payload = ::toMiniSEED(packets, recordLength, wantMiniSEED3);
-spdlog::info("returning : " +  std::to_string (packets.size()) + " with payload size " + std::to_string (payload.size()));
+                auto payload
+                    = ::toMiniSEED(packets, recordLength, wantMiniSEED3);
+                //spdlog::info("returning : " +  std::to_string (packets.size()) + " with payload size " + std::to_string (payload.size()));
                 crow::response response;
                 response.set_header("Content-Type", "application/octet-stream");
                 response.code = 200;
-                response.body = payload;
+                response.body = std::move(payload);
                 return response;
             }
             //std::cout << "hey packets; " << packets.size() << std::endl;

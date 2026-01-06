@@ -47,6 +47,43 @@ std::string toTableName(const Credentials &credentials,
     return ::toTableName(credentials.getSchema(), network, station);
 }
 
+struct StreamIdentifier
+{
+    StreamIdentifier() = default;
+    explicit StreamIdentifier(const std::string &name) 
+    {
+        std::vector<std::string> splitString;
+        boost::split(splitString, name, boost::is_any_of("."));
+        if (splitString.size() == 4)
+        {
+            network = splitString[0];
+            station = splitString[1];
+            channel = splitString[2];
+            locationCode = splitString[3];
+        }
+        else
+        {
+            if (splitString.size() == 3)
+            {
+                network = splitString[0];
+                station = splitString[1];
+                channel = splitString[2];
+                locationCode = "--";
+            }        
+            else
+            {
+                throw std::runtime_error("Could not parse " + name
+                                       + "; unhandled split string size of "
+                                       + std::to_string(splitString.size()));
+            }
+        }
+    }
+    std::string network; 
+    std::string station;
+    std::string channel;
+    std::string locationCode;
+};
+
 
 UWaveServer::Packet unpackPacket(
     const std::string &network,
@@ -185,6 +222,87 @@ std::vector<UWaveServer::Packet> unpackPackets(
     return result;
 }
 
+std::map<std::string, std::vector<UWaveServer::Packet>> unpackPackets(
+    const std::map<int, ::StreamIdentifier> &identifierToStreamIdentifiers,
+    const bool amLittleEndian, 
+    const std::vector<int> &streamIdentifiers,
+    const std::vector<double> &packetStartTime,
+    const std::vector<double> &packetSamplingRate,
+    const std::vector<char> &packetDataType,
+    std::vector<std::basic_string<std::byte>> &packetByteArray,
+    const std::vector<bool> packetIsLittleEndian,
+    const std::vector<bool> packetIsCompressed,
+    const std::vector<int> packetSampleCount)
+{
+    std::map<std::string, std::vector<UWaveServer::Packet>> result;
+    for (const auto &streamIdentifierPair : identifierToStreamIdentifiers)
+    {
+        auto targetIdentifier = streamIdentifierPair.first;
+        auto network = streamIdentifierPair.second.network;
+        auto station = streamIdentifierPair.second.station;
+        auto channel = streamIdentifierPair.second.channel;
+        auto locationCode = streamIdentifierPair.second.locationCode;
+        auto name = ::toName(network, station, channel, locationCode);
+        //std::vector<int> matchingStreamIdentifier;
+        std::vector<double> matchingPacketStartTime;
+        std::vector<double> matchingPacketSamplingRate;
+        std::vector<char> matchingPacketDataType;
+        std::vector<std::basic_string<std::byte>> matchingPacketByteArray;
+        std::vector<bool> matchingPacketIsLittleEndian;
+        std::vector<bool> matchingPacketIsCompressed;
+        std::vector<int> matchingPacketSampleCount;
+        auto nPackets = static_cast<int> (streamIdentifiers.size());
+        matchingPacketStartTime.reserve(nPackets);
+        matchingPacketSamplingRate.reserve(nPackets);
+        matchingPacketDataType.reserve(nPackets);
+        matchingPacketByteArray.reserve(nPackets);
+        matchingPacketIsLittleEndian.reserve(nPackets);
+        matchingPacketIsCompressed.reserve(nPackets);
+        matchingPacketSampleCount.reserve(nPackets);
+        for (int i = 0; i < nPackets; ++i)
+        {
+            if (streamIdentifiers[i] == targetIdentifier)
+            {
+                //matchingStreamIdentifier.push_back(streamIdentifiers[i]);
+                matchingPacketStartTime.push_back(packetStartTime[i]);
+                matchingPacketSamplingRate.push_back(packetSamplingRate[i]);
+                matchingPacketDataType.push_back(packetDataType[i]);
+                matchingPacketByteArray.push_back(
+                    std::move(packetByteArray.at(i)));
+                matchingPacketIsLittleEndian.push_back(packetIsLittleEndian[i]);
+                matchingPacketIsCompressed.push_back(packetIsCompressed[i]);
+                matchingPacketSampleCount.push_back(packetSampleCount[i]);
+            }
+        }
+        try
+        {
+            if (!matchingPacketStartTime.empty())
+            {
+                auto matchingPackets
+                    = ::unpackPackets(network,
+                                      station,
+                                      channel,
+                                      locationCode,
+                                      amLittleEndian, 
+                                      matchingPacketStartTime,
+                                      matchingPacketSamplingRate,
+                                      matchingPacketDataType,
+                                      matchingPacketByteArray,
+                                      matchingPacketIsLittleEndian,
+                                      matchingPacketIsCompressed,
+                                      matchingPacketSampleCount);
+                result.insert_or_assign(name, std::move(matchingPackets));
+            }
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::warn("Failed to unpack packets for " + name
+                       + " because " + std::string {e.what()});
+        }
+    }
+    return result;
+}
+
 
 /// @brief Converts an input string to an upper-case string with no blanks.
 /// @param[in] s  The string to convert.
@@ -196,31 +314,6 @@ std::string convertString(const std::string &s)
     std::transform(temp.begin(), temp.end(), temp.begin(), ::toupper);
     return temp;
 }
-
-/*
-template<typename T, typename U>
-void fill(const int nFill,
-          const int offset,
-          const double startTime,
-          const double samplingPeriod,
-          const T *valuesIn,
-          std::vector<double> &times,
-          std::vector<U> &values)
-{
-#ifndef NDEBUG
-    assert(nFill == static_cast<int> (values.size()));
-    assert(nFill == static_cast<int> (times.size()));
-#endif
-    std::copy(valuesIn + offset,
-              valuesIn + offset + nFill,
-              values.begin()); 
-    for (int i = 0; i < nFill; ++i)
-    {
-        times[i] = startTime
-                 + static_cast<double> (offset + i)*samplingPeriod;
-    }
-}
-*/
 
 }
 
@@ -560,6 +653,7 @@ public:
         return true;
     }
     // Get the the packets for all channels for this station/network
+/*
     [[nodiscard]]
     std::map<std::string, std::vector<Packet>>
         query(const std::string &network,
@@ -610,6 +704,158 @@ public:
                               + std::string {querySuffix};
         }
         return result;    
+    }
+*/
+    // Get the packets for this station/network
+    [[nodiscard]]
+    std::map<std::string, std::vector<Packet>>
+        queryAllChannelsForStation(const std::string &network,
+                                   const std::string &station,
+                                   const double startTime,
+                                   const double endTime)
+    {
+        // Ensure we're connected
+        if (!isConnected())
+        {
+            spdlog::info("Attempting to reconnect prior to query...");
+            reconnect(); // Throws
+        }
+        std::map<std::string, std::vector<Packet>> result;
+        // tableName, vector(sensor_ids)
+        auto tableToIdentifiersMap
+            = getSensorIdentifiersAndTableName(network, station);
+        // Nothing to get
+        if (tableToIdentifiersMap.empty()){return result;}
+        // Figure out the sensor identifier to StreamIdentifier map
+        std::map<int, ::StreamIdentifier> identifierToStreamIdentifiers;
+        {
+        std::scoped_lock lock(mMutex);
+        for (const auto &tableIdentifiers : tableToIdentifiersMap)
+        {
+            for (const auto &id : tableIdentifiers.second)
+            {
+                // name, pair<id, tableName>
+                for (const auto &sensorToIdentifierAndTableName : 
+                     mSensorToIdentifierAndTableName)
+                {
+                    if (id == sensorToIdentifierAndTableName.second.first)
+                    {
+                        try
+                        {
+                            ::StreamIdentifier streamIdentifier{
+                                sensorToIdentifierAndTableName.first};
+                            identifierToStreamIdentifiers.insert_or_assign(
+                                id, std::move(streamIdentifier));
+                        }
+                        catch (const std::exception &e)
+                        {
+                            spdlog::warn(e.what());
+                        }
+                    }
+                }
+            }
+        }
+        }
+        // Build query and get packets 
+        std::vector<int> streamIdentifier;
+        std::vector<double> packetStartTime;
+        std::vector<double> packetSamplingRate;
+        std::vector<int> packetSampleCount;
+        std::vector<bool> packetIsLittleEndian;
+        std::vector<bool> packetIsCompressed;
+        std::vector<char> packetDataType;
+        std::vector<std::basic_string<std::byte>> packetByteArray;
+        for (const auto &tableIdentifiers : tableToIdentifiersMap)
+        {
+            const auto &tableName = tableIdentifiers.first;
+            const auto &identifiers = tableIdentifiers.second;
+            if (identifiers.empty()){continue;}
+            // Assemble query
+            constexpr std::string_view queryPrefix{
+"SELECT sensor_identifier, EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
+            };
+            std::string queryMultiSensorSuffix{
+" WHERE end_time > TO_TIMESTAMP($1) AND start_time < TO_TIMESTAMP($2) AND sensor_identifier IN ("
+            };
+            auto nIdentifiers = static_cast<int> (identifiers.size());
+            for (int i = 0; i < nIdentifiers; ++i)
+            {
+                queryMultiSensorSuffix = queryMultiSensorSuffix
+                                       + std::to_string(identifiers.at(i));
+                if (i < nIdentifiers - 1)
+                {
+                    queryMultiSensorSuffix = queryMultiSensorSuffix + ",";
+                }
+                else
+                {
+                    queryMultiSensorSuffix = queryMultiSensorSuffix + ")";
+                }
+            }
+            pqxx::params parameters{startTime,
+                                    endTime};
+            std::string query = std::string {queryPrefix}
+                              + tableName
+                              + queryMultiSensorSuffix;
+            std::vector<int> streamIdentifier;
+            std::vector<double> packetStartTime;
+            std::vector<double> packetSamplingRate;
+            std::vector<int> packetSampleCount;
+            std::vector<bool> packetIsLittleEndian;
+            std::vector<bool> packetIsCompressed;
+            std::vector<char> packetDataType;
+            std::vector<std::basic_string<std::byte>> packetByteArray;
+            {
+            std::scoped_lock lock(mDatabaseMutex);
+            pqxx::work transaction(*mConnection);
+            pqxx::result queryResult = transaction.exec(query, parameters);
+            auto queryResultSize = queryResult.size();
+            streamIdentifier.reserve(streamIdentifier.size() + queryResultSize);
+            packetStartTime.reserve(packetStartTime.size() + queryResultSize);
+            packetSamplingRate.reserve(
+                packetSamplingRate.size() + queryResultSize);
+            packetSampleCount.reserve(
+                packetSampleCount.size() + queryResultSize);
+            packetIsCompressed.reserve(
+                packetIsCompressed.size() + queryResultSize);
+            packetIsLittleEndian.reserve(
+                packetIsLittleEndian.size() + queryResultSize);
+            packetDataType.reserve(packetDataType.size() + queryResultSize);
+            packetByteArray.reserve(packetByteArray.size() + queryResultSize);
+            for (int i = 0; i < static_cast<int> (queryResult.size()); ++i)
+            {
+                const auto &row = queryResult[i];
+                streamIdentifier.push_back(row[0].as<int> ());
+                packetStartTime.push_back(row[1].as<double> ()); 
+                packetSamplingRate.push_back(row[2].as<double> ()); 
+                packetSampleCount.push_back(row[3].as<int> ()); 
+                packetIsLittleEndian.push_back(row[4].as<bool> ()); 
+                packetIsCompressed.push_back(row[5].as<bool> ()); 
+                packetDataType.push_back(row[6].as<std::string_view> () [0]);
+                packetByteArray.push_back(
+                    row[7].as<std::basic_string<std::byte>> ()); 
+            }
+            transaction.commit();
+            }
+        }
+        // Now we unpack
+        try
+        {
+            result =::unpackPackets(identifierToStreamIdentifiers,
+                                    mAmLittleEndian,
+                                    streamIdentifier,
+                                    packetStartTime,
+                                    packetSamplingRate,
+                                    packetDataType,
+                                    packetByteArray,
+                                    packetIsLittleEndian,
+                                    packetIsCompressed,
+                                    packetSampleCount);
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::warn(e.what());
+        } 
+        return result;
     }
     // Get the for this SCNL packets from the database
     [[nodiscard]]
@@ -697,9 +943,9 @@ public:
         double queryDuration
             = std::chrono::duration_cast<std::chrono::microseconds>
               (queryEndTime - queryStartTime).count()*1.e-6;
-        spdlog::info("Query duration was "
-                   + std::to_string(queryDuration) + " (s)");
-        auto unpackTimeTime = queryEndTime;
+        spdlog::debug("Query duration was "
+                    + std::to_string(queryDuration) + " (s)");
+        auto unpackStartTime = queryEndTime;
 #endif
         result = ::unpackPackets(network,
                                  station,
@@ -717,9 +963,9 @@ public:
         auto unpackEndTime = std::chrono::high_resolution_clock::now();
         double unpackDuration
             = std::chrono::duration_cast<std::chrono::microseconds>
-              (unpackEndTime - queryStartTime).count()*1.e-6;
-        spdlog::info("Unpack duration was "
-                   + std::to_string(unpackDuration) + " (s)");
+              (unpackEndTime - unpackStartTime).count()*1.e-6;
+        spdlog::debug("Unpack duration was "
+                    + std::to_string(unpackDuration) + " (s)");
 #endif                                
         return result;
     }
@@ -808,6 +1054,42 @@ std::vector<UWaveServer::Packet> ReadOnlyClient::query(
     auto locationCode = ::convertString(locationCodeIn);
     return pImpl->query(network, station, channel, locationCode,
                         startTime, endTime); 
+}
+
+std::map<std::string, std::vector<UWaveServer::Packet>>
+ReadOnlyClient::queryAllChannelsForStation(
+    const std::string &network,
+    const std::string &station,
+    const std::chrono::microseconds &t0MuS,
+    const std::chrono::microseconds &t1MuS) const
+{
+    const double t0{t0MuS.count()*1.e-6};
+    const double t1{t0MuS.count()*1.e-6};
+    return queryAllChannelsForStation(network, station, t0, t1);
+}
+
+std::map<std::string, std::vector<UWaveServer::Packet>>
+ReadOnlyClient::queryAllChannelsForStation(
+    const std::string &networkIn,
+    const std::string &stationIn,
+    const double startTime,
+    const double endTime) const
+{
+    if (startTime >= endTime)
+    {
+        throw std::invalid_argument("Start time must be less han end time");
+    }
+    auto network = ::convertString(networkIn);
+    if (network.empty())
+    {
+        throw std::invalid_argument("Network is empty");
+    }
+    auto station = ::convertString(stationIn);
+    if (station.empty())
+    {
+        throw std::invalid_argument("Station is empty");
+    }
+    return pImpl->queryAllChannelsForStation(network, station, startTime, endTime);
 }
 
 std::set<std::string> ReadOnlyClient::getSensors() const

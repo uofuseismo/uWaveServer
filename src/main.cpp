@@ -57,7 +57,7 @@ struct ProgramOptions
     std::string databaseSchema{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "")};
     int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
     int mQueueCapacity{8092}; // Want this big enough but not too big
-    int mDatabaseWriterThreads{4};  
+    int nDatabaseWriterThreads{1}; 
 };
 
 ProgramOptions parseIniFile(const std::string &iniFile);
@@ -537,13 +537,15 @@ public:
         std::chrono::seconds {-1}};
     UWaveServer::TestDuplicatePacket mTestDeepDuplicatePacket {
         std::chrono::seconds {120},
-        std::chrono::seconds {3600}};
+        std::chrono::hours {1}};
     UWaveServer::TestFuturePacket mTestFuturePacket{
         std::chrono::microseconds {0},
-        std::chrono::seconds {3600}};
+        std::chrono::hours {1}};
     UWaveServer::TestExpiredPacket mTestExpiredPacket{
-        std::chrono::days {90},
-        std::chrono::seconds {3600}};
+        // We'll likely hold onto data longer but telemetry won't
+        // have data older than a few weeks
+        std::chrono::days {60},
+        std::chrono::hours {1}};
     mutable std::mutex mStopContext;
     std::condition_variable mStopCondition;
     std::vector<std::future<void>> mDataAcquisitionFutures;
@@ -623,7 +625,7 @@ std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[])
     std::string iniFile;
     boost::program_options::options_description desc(R"""(
 The uwsDataLoader maps data from a telemetry to the waveserver TimescaleDB
-postgres database.
+Postgres database.
 
 Example usage is
 
@@ -747,14 +749,36 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
 
+    // Application name
+    options.applicationName
+        = propertyTree.get<std::string> ("General.applicationName",
+                                         options.applicationName);
+    if (options.applicationName.empty())
+    {   
+        options.applicationName = APPLICATION_NAME;
+    }   
+    options.verbosity
+        = propertyTree.get<int> ("General.verbosity", options.verbosity);
+
     options.mDatabaseWriterThreads
-       = propertyTree.get<int> ("uwsDataLoader.nDatabaseWriterThreads",
-                                options.mDatabaseWriterThreads);
+       = propertyTree.get<int> ("General.nDatabaseWriterThreads",
+                                options.nDatabaseWriterThreads);
     if (options.mDatabaseWriterThreads < 1 ||
         options.mDatabaseWriterThreads > 2048)
     {
         throw std::invalid_argument(
             "Number of database threads must be between 1 and 2048");
+    }
+
+    // Prometheus
+    uint16_t prometheusPort
+        = propertyTree.get<uint16_t> ("Prometheus.port", 9200);
+    std::string prometheusHost
+        = propertyTree.get<std::string> ("Prometheus.host", "localhost");
+    if (!prometheusHost.empty())
+    {
+        options.prometheusURL = prometheusHost + ":" 
+                              + std::to_string(prometheusPort);
     }
 
     // Database

@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <map>
 #include <set>
 namespace UWaveServer
 {
@@ -31,19 +32,30 @@ public:
                                 const std::string &locationCode,
                                 const bool checkCacheOnly = false) const;
     [[nodiscard]] std::vector<UWaveServer::Packet>
-         query(const std::string &network,
-               const std::string &station,
-               const std::string &channel,
-               const std::string &locationCode,
-               const std::chrono::microseconds &startTime,
-               const std::chrono::microseconds &endTime) const;
+        query(const std::string &network,
+              const std::string &station,
+              const std::string &channel,
+              const std::string &locationCode,
+              const std::chrono::microseconds &startTime,
+              const std::chrono::microseconds &endTime) const;
     [[nodiscard]] std::vector<UWaveServer::Packet>
-         query(const std::string &network,
-               const std::string &station,
-               const std::string &channel,
-               const std::string &locationCode,
-               const double startTime,
-               const double endTime) const;
+        query(const std::string &network,
+              const std::string &station,
+              const std::string &channel,
+              const std::string &locationCode,
+              const double startTime,
+              const double endTime) const;
+    [[nodiscard]] std::map<std::string, std::vector<UWaveServer::Packet>>
+        queryAllChannelsForStation(const std::string &network,
+                                   const std::string &station,
+                                   const std::chrono::microseconds &t0MuS,
+                                   const std::chrono::microseconds &t1MuS) const;
+    [[nodiscard]] std::map<std::string, std::vector<UWaveServer::Packet>>
+        queryAllChannelsForStation(const std::string &network,
+                                   const std::string &station,
+                                   const double starTime,
+                                   const double endTime) const;
+
     /// @result Get most up-to-date list of sensors in the database.
     [[nodiscard]] std::set<std::string> getSensors() const;
     
