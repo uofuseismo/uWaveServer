@@ -24,8 +24,12 @@
 #include "private/threadSafeBoundedQueue.hpp"
 #include "getEnvironmentVariable.hpp"
 #include "metricsExporter.hpp"
+#include "writerMetrics.hpp"
+
+#define APPLICATION_NAME "uwsDataLoader"
 
 [[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
+void setVerbosityForSPDLOG(const int verbosity);
 
 namespace
 {       
@@ -48,7 +52,7 @@ struct ProgramOptions
 {
     UWaveServer::PacketSanitizerOptions mPacketSanitizerOptions;
     std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
-    std::string applicationName{"uwsDataLoader"};
+    std::string applicationName{APPLICATION_NAME};
     std::string prometheusURL{"localhost:9020"};
     std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
     std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
@@ -58,6 +62,7 @@ struct ProgramOptions
     int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
     int mQueueCapacity{8092}; // Want this big enough but not too big
     int nDatabaseWriterThreads{1}; 
+    int verbosity{3};
 };
 
 ProgramOptions parseIniFile(const std::string &iniFile);
@@ -67,10 +72,11 @@ class Process
 public:
     Process() = delete;
     /// Constructor
-    explicit Process(const ProgramOptions &options)
+    explicit Process(const ProgramOptions &options) :
+        mProgramOptions(options)
     //        std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
     {
-        nDatabaseWriterThreads = options.mDatabaseWriterThreads;
+        nDatabaseWriterThreads = options.nDatabaseWriterThreads;
         // Reserve size the queues
         mShallowPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         //mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
@@ -81,13 +87,14 @@ public:
         for (int iThread = 0; iThread < nDatabaseWriterThreads; ++iThread)
         {
             UWaveServer::Database::Credentials databaseCredentials;
-            databaseCredentials.setUser(options.databaseUser);
-            databaseCredentials.setPassword(options.databasePassword);
-            databaseCredentials.setHost(options.databaseHost);
-            databaseCredentials.setPort(options.databasePort);
-            databaseCredentials.setDatabaseName(options.databaseName);
-            databaseCredentials.setApplication(options.applicationName
-                                             + "-" + std::to_string(iThread));
+            databaseCredentials.setUser(mProgramOptions.databaseUser);
+            databaseCredentials.setPassword(mProgramOptions.databasePassword);
+            databaseCredentials.setHost(mProgramOptions.databaseHost);
+            databaseCredentials.setPort(mProgramOptions.databasePort);
+            databaseCredentials.setDatabaseName(mProgramOptions.databaseName);
+            databaseCredentials.setApplication(
+                 mProgramOptions.applicationName
+               + "-" + std::to_string(iThread));
             if (!options.databaseSchema.empty())
             {
                 spdlog::info("Will connect to schema "
@@ -246,6 +253,17 @@ public:
     {
         spdlog::info("Thread " + std::to_string(iThread)
                    + " entering database writer");
+        // We'll keep this pretty coarse - we could write stats for each
+        // table but that is getting into the realm of telemetry metrics
+        auto databaseKey = mProgramOptions.databaseName;
+        if (!mProgramOptions.databaseSchema.empty())
+        {
+            databaseKey = databaseKey + "." + mProgramOptions.databaseSchema;
+        }
+        mObservablePacketsWritten.add_or_assign(databaseKey, 0);
+        mObservablePacketsNotWritten.add_or_assign(databaseKey, 0);
+        std::map<std::string, std::string> histogramKey{ {"database", databaseKey} };
+        auto otelContext = opentelemetry::context::Context {};
 
         auto nowMuSeconds
            = std::chrono::time_point_cast<std::chrono::microseconds>
@@ -274,6 +292,13 @@ public:
                     double duration
                         = std::chrono::duration_cast<std::chrono::microseconds>
                           (t2 - t1).count()*1.e-6;
+                    mObservablePacketsWritten.add_or_assign(databaseKey, 1);
+                    if (mWriteHistogram)
+                    {
+                        mWriteHistogram->Record(duration,
+                                                histogramKey,
+                                                otelContext);
+                    }
                     averageTime = averageTime + duration;
                     cumulativeTime = cumulativeTime + duration;
                     nRowsWritten = nRowsWritten + 1; //packet.size();
@@ -308,6 +333,7 @@ public:
                 {
                     spdlog::warn("Failed to add packet to database because "
                                + std::string {e.what()});
+                    mObservablePacketsNotWritten.add_or_assign(databaseKey, 1);
                 }
             }
         }
@@ -455,7 +481,7 @@ public:
             {
                 dataAcquisitionFuture.get();
             }
-        } 
+        }
         mDataAcquisitionFutures.clear();
 
         if (mShallowPacketSanitizerThread.joinable())
@@ -482,15 +508,15 @@ public:
     void emptyQueues()
     {   
         while (!mShallowPacketSanitizerQueue.empty())
-        {   
+        {
             mShallowPacketSanitizerQueue.pop();
-        } 
+        }
         //while (!mDeepPacketSanitizerQueue.empty())
         //{   
         //    mDeepPacketSanitizerQueue.pop();
         //}   
         while (!mWritePacketToDatabaseQueue.empty())
-        {   
+        {
             mWritePacketToDatabaseQueue.pop();
         }
     }
@@ -547,6 +573,7 @@ public:
         std::chrono::days {60},
         std::chrono::hours {1}};
     mutable std::mutex mStopContext;
+    ::ProgramOptions mProgramOptions;
     std::condition_variable mStopCondition;
     std::vector<std::future<void>> mDataAcquisitionFutures;
     std::vector<std::thread> mDatabaseWriterThreads;
@@ -585,6 +612,7 @@ int main(int argc, char *argv[])
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
+    ::setVerbosityForSPDLOG(programOptions.verbosity);
 
     // Create the data source connections
     spdlog::info("Initializing processes...");
@@ -602,13 +630,28 @@ int main(int argc, char *argv[])
 
     try
     {
+        ::initializeMetrics(programOptions.prometheusURL);
+        ::initializeWriterMetrics(programOptions.applicationName);
+    }
+    catch (const std::exception &e) 
+    {
+        spdlog::critical("Failed to initalize metrics with "
+                       + std::string {e.what()});
+        return EXIT_FAILURE;
+    }
+
+    try
+    {
         process->start();
         process->handleMainThread();
         //process->stop();
+        cleanupMetrics();
     }
     catch (const std::exception &e)
     {
        spdlog::critical("An error occurred during processing");
+       cleanupMetrics();
+       return EXIT_FAILURE;
     }
 
     // Initialize the utility that will map from the acquisition to the database 
@@ -656,6 +699,17 @@ Allowed options)""");
     }
     return {iniFile, false};
 }
+
+void setVerbosityForSPDLOG(const int verbosity)
+{
+    if (verbosity <= 1)
+    {   
+        spdlog::set_level(spdlog::level::critical);
+    }   
+    if (verbosity == 2){spdlog::set_level(spdlog::level::warn);}
+    if (verbosity == 3){spdlog::set_level(spdlog::level::info);}
+    if (verbosity >= 4){spdlog::set_level(spdlog::level::debug);}
+}   
 
 [[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions
 getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
@@ -760,11 +814,11 @@ ProgramOptions parseIniFile(const std::string &iniFile)
     options.verbosity
         = propertyTree.get<int> ("General.verbosity", options.verbosity);
 
-    options.mDatabaseWriterThreads
+    options.nDatabaseWriterThreads
        = propertyTree.get<int> ("General.nDatabaseWriterThreads",
                                 options.nDatabaseWriterThreads);
-    if (options.mDatabaseWriterThreads < 1 ||
-        options.mDatabaseWriterThreads > 2048)
+    if (options.nDatabaseWriterThreads < 1 ||
+        options.nDatabaseWriterThreads > 2048)
     {
         throw std::invalid_argument(
             "Number of database threads must be between 1 and 2048");

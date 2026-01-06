@@ -118,7 +118,7 @@ target_sources(uWaveServer
                   include/uWaveServer/packetSanitizerOptions.hpp
                   include/uWaveServer/version.hpp)
 target_link_libraries(uWaveServer
-                      PUBLIC libpqxx::pqxx #nlohmann_json::nlohmann_json libpqxx::pqxx
+                      PUBLIC libpqxx::pqxx
                       PRIVATE spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
 #if (${ZLIB_FOUND})
 #   target_link_libraries(uWaveServer PRIVATE ZLIB::ZLIB)
@@ -149,7 +149,10 @@ target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
-                      PRIVATE uWaveServer spdlog::spdlog_header_only Boost::program_options)
+                      PRIVATE uWaveServer
+                              opentelemetry-cpp::prometheus_exporter 
+                              spdlog::spdlog_header_only
+                              Boost::program_options)
 
 if (${Crow_FOUND})
    message("Will build web server")
