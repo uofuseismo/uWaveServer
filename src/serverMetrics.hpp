@@ -21,6 +21,8 @@ opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     mServerErrorResponseCounter;
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     mClientErrorResponseCounter;
+opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>
+    mWriteHistogram{nullptr};
 
 template<typename T>
 class ObservableMap
@@ -29,7 +31,7 @@ public:
     /// If the key, value pair is present then value will be added to it
     /// otherwise the key, value pair is initialized to the given value.
     void add_or_assign(const std::string &key, const T value)
-    {   
+    {
         std::lock_guard<std::mutex> lock(mMutex);
         auto idx = mMap.find(key);
         if (idx != mMap.end())
@@ -40,7 +42,7 @@ public:
         {
             mMap.insert( std::pair {key, value} );
         }
-    }   
+    }
     [[nodiscard]] std::set<std::string> keys() const noexcept
     {   
         std::set<std::string> result;
@@ -219,7 +221,7 @@ void observeClientErrorResponses(
     }   
 }
 
-void initializeImportMetrics(const std::string &applicationName)
+void initializeServerMetrics(const std::string &applicationName)
 {
     // Need a provider from which to get a meter.  This is initialized
     // once and should last the duration of the application.
@@ -255,6 +257,34 @@ void initializeImportMetrics(const std::string &applicationName)
              "Number of client error (400) responses",
              "responses");
     mClientErrorResponseCounter->AddCallback(observeClientErrorResponses, nullptr);
+
+    mWriteHistogram
+       = meter->CreateDoubleHistogram(
+            "database_write_time_histogram",
+            "Time required to write packet to the database",
+            "s");
+/*
+    const std::string histogramBaseName{"database_write_time"};
+    std::string histogramName = histogramBaseName + "_histogram";
+    auto histogramSelector
+        = opentelemetry::sdk::metrics::InstrumentSelectorFactory::Create(
+             opentelemetry::sdk::metrics::InstrumentType::kHistogram,
+             histogramName,
+             "s");
+    auto histogramMeterSelector
+        = opentelemetry::sdk::metrics::MeterSelectorFactory::Create(
+             histogramBaseName,
+             "1.2.0",
+             "https://opentelemetry.io/schemas/1.2.0");
+    auto databaseWriteHistogramView
+        = opentelemetry::sdk::metrics::ViewFactory::Create(
+             histogramName,
+             "Time in seconds to write a packet to the database",
+             opentelemetry::sdk::metrics::InstrumentType::kHistogram);
+
+    provider->AddView(std::move(histogram
+*/
+
 }
 
 }

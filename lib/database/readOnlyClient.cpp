@@ -325,7 +325,7 @@ public:
     {   
         mAmReadOnly = true;
         connect();
-        initializeSensors();
+        initializeStreams();
     }
     [[nodiscard]] bool isConnected() const noexcept
     {
@@ -408,19 +408,19 @@ public:
         }
         throw std::runtime_error("Failed to connect to database");
     }
-    [[nodiscard]] std::map<std::string, std::pair<int, std::string>> getSensors()
+    [[nodiscard]] std::map<std::string, std::pair<int, std::string>> getStreams()
     {
         // Ensure we're connected
         if (isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to getting sensors...");
+            spdlog::info("Attempting to reconnect prior to getting streams...");
             reconnect(); // Throws
         }
         std::vector<std::pair<std::string, std::pair<int, std::string>>>
-            sensorTableMap;
+            streamTableMap;
         constexpr pqxx::zview query
 {
-"SELECT identifier, network, station, channel, location_code, data_table_name FROM sensors"
+"SELECT identifier, network, station, channel, location_code, data_table_name FROM streams"
 };
         // Streaming for this little data is unnecessary and dangerous
         {
@@ -441,9 +441,9 @@ public:
                 std::pair<int, std::string>
                     identifierTablePair{identifier, std::string{tableName}};
                 std::pair<std::string, std::pair<int, std::string>>
-                    sensorIdentifierTablePair{std::move(name),
+                    streamIdentifierTablePair{std::move(name),
                                               std::move(identifierTablePair)};
-                sensorTableMap.push_back(std::move(sensorIdentifierTablePair)); 
+                streamTableMap.push_back(std::move(streamIdentifierTablePair)); 
             }
             catch (const std::exception &e)
             {
@@ -453,26 +453,26 @@ public:
         transaction.commit();
         }
         std::map<std::string, std::pair<int, std::string>> result;
-        for (auto &sensorTablePair : sensorTableMap)
+        for (auto &streamTablePair : streamTableMap)
         {
-            if (!result.contains(sensorTablePair.first))
+            if (!result.contains(streamTablePair.first))
             {
-                result.insert(std::move(sensorTablePair));
+                result.insert(std::move(streamTablePair));
             }
         }
         return result;
     }
-    // Search for a sensor and, potentially, if it doesn't exist add it to my
+    // Search for a stream and, potentially, if it doesn't exist add it to my
     // cache
     [[nodiscard]] std::map<std::string, std::vector<int>>
-        getSensorIdentifiersAndTableName(const std::string &network,
+        getStreamIdentifiersAndTableName(const std::string &network,
                                          const std::string &station)
     {
-        std::vector<std::pair<int, std::string>> sensorTablePairs;
+        std::vector<std::pair<int, std::string>> streamTablePairs;
         // Okay - let's look in the database for it
         constexpr pqxx::zview query
 {
-"SELECT identifier, data_table_name, channel, location_code FROM sensors WHERE network = $1 AND station = $2"
+"SELECT identifier, data_table_name, channel, location_code FROM streams WHERE network = $1 AND station = $2"
 };
         pqxx::params queryParameters{network, station};
         int identifier{-1};
@@ -497,7 +497,7 @@ public:
                 auto name = ::toName(network, station, channel, locationCode);
                 auto newEntry
                     = std::pair{ identifier, std::move(thisTableName) };
-                sensorTablePairs.push_back(std::move(newEntry));
+                streamTablePairs.push_back(std::move(newEntry));
             }
             catch (const std::exception &e)
             {
@@ -509,7 +509,7 @@ public:
         // Now we need to invert the control so that the keys are the
         // table names and then we have a list of identifiers
         std::map<std::string, std::vector<int>> result;
-        for (auto &pair : sensorTablePairs)
+        for (auto &pair : streamTablePairs)
         {
             if (result.empty())
             {
@@ -538,7 +538,7 @@ public:
         return result;
     }
     [[nodiscard]] std::pair<int, std::string>
-        getSensorIdentifierAndTableName(const std::string &network,
+        getStreamIdentifierAndTableName(const std::string &network,
                                         const std::string &station,
                                         const std::string &channel,
                                         const std::string &locationCode,
@@ -548,8 +548,8 @@ public:
         // Maybe we already have this channel 
         {
         std::scoped_lock lock(mMutex);
-        auto index = mSensorToIdentifierAndTableName.find(name);
-        if (index != mSensorToIdentifierAndTableName.end())
+        auto index = mStreamToIdentifierAndTableName.find(name);
+        if (index != mStreamToIdentifierAndTableName.end())
         {
             return index->second;
         }
@@ -558,7 +558,7 @@ public:
         // Okay - let's look in the database for it
         constexpr pqxx::zview query
 {
-"SELECT identifier, data_table_name FROM sensors WHERE network = $1 AND station = $2 AND channel = $3 AND location_code = $4"
+"SELECT identifier, data_table_name FROM streams WHERE network = $1 AND station = $2 AND channel = $3 AND location_code = $4"
 };
         pqxx::params queryParameters{network, station, channel, locationCode};
         int identifier{-1};
@@ -575,7 +575,7 @@ public:
             if (queryResult.size() > 1)
             {
                 spdlog::warn("Multiple hit for " + name  
-                           + " in sensors table - returning first");
+                           + " in streams table - returning first");
             }
         }
         transaction.commit();
@@ -584,7 +584,7 @@ public:
         // so another writer doesn't swing by and ruin my day. 
         if (identifier ==-1)
         {
-            spdlog::debug("Sensor " + name + " does not exist");
+            spdlog::debug("Stream " + name + " does not exist");
             return std::pair {identifier, tableName}; 
         }
         if (identifier >= 0)
@@ -592,7 +592,7 @@ public:
             std::pair<int, std::string> itemToInsert{identifier, tableName};
             {
             std::scoped_lock lock(mMutex);
-            mSensorToIdentifierAndTableName.insert_or_assign(
+            mStreamToIdentifierAndTableName.insert_or_assign(
                name, std::move(itemToInsert));
             }
         }
@@ -600,32 +600,32 @@ public:
     }
     [[nodiscard]]
     std::pair<int, std::string>
-        getSensorIdentifierAndTableName(const Packet &packet,
+        getStreamIdentifierAndTableName(const Packet &packet,
                                         const bool checkCacheOnly) const
     {
         const auto network = packet.getNetworkReference();
         const auto station = packet.getStationReference();
         const auto channel = packet.getChannelReference();
         const auto locationCode = packet.getLocationCodeReference();
-        return getSensorIdentifierAndTableName(network, station,
+        return getStreamIdentifierAndTableName(network, station,
                                                channel, locationCode,
                                                checkCacheOnly);
     }
-    // Initialize my cache of sensors
-    void initializeSensors()
+    // Initialize my cache of streams
+    void initializeStreams()
     {
-        auto sensors = getSensors();
-        if (!sensors.empty())
+        auto streams = getStreams();
+        if (!streams.empty())
         {
             std::scoped_lock lock(mMutex);
-            mSensorToIdentifierAndTableName.clear();
-            for (auto &sensor : sensors)
+            mStreamToIdentifierAndTableName.clear();
+            for (auto &stream : streams)
             {
-                mSensorToIdentifierAndTableName.insert_or_assign(
-                    sensor.first, std::move(sensor.second));
+                mStreamToIdentifierAndTableName.insert_or_assign(
+                    stream.first, std::move(stream.second));
             }
-            spdlog::debug(std::to_string(mSensorToIdentifierAndTableName.size())
-                        + " sensors in map");
+            spdlog::debug(std::to_string(mStreamToIdentifierAndTableName.size())
+                        + " streams in map");
         }
     }
     bool contains(const std::string &network,
@@ -638,15 +638,15 @@ public:
         if (!isConnected())
         {
             spdlog::debug(
-                "Attempting to reconnect prior to checking if sensor exists..");
+                "Attempting to reconnect prior to checking if stream exists..");
             reconnect(); // Throws
         }   
-        // Check the sensor is there 
-        auto sensorIdentifierAndTableName
-             = getSensorIdentifierAndTableName(network, station,
+        // Check the stream is there 
+        auto streamIdentifierAndTableName
+             = getStreamIdentifierAndTableName(network, station,
                                                channel, locationCode,
                                                checkCacheOnly); // Throws
-        if (sensorIdentifierAndTableName.first < 0)
+        if (streamIdentifierAndTableName.first < 0)
         {
             return false;
         }
@@ -662,13 +662,13 @@ public:
               const double endTime)
     {
         std::map<std::string, std::vector<Packet>> result;
-        // Check the sensor is there
-        auto tableNameAndSensorIdentifiers
-             = getSensorIdentifiersAndTableName(network, station);
-        if (tableNameAndSensorIdentifiers.empty())
+        // Check the stream is there
+        auto tableNameAndStreamIdentifiers
+             = getStreamIdentifiersAndTableName(network, station);
+        if (tableNameAndStreamIdentifiers.empty())
         {
             throw std::invalid_argument(
-               "Could not determine table holding sensor data for "
+               "Could not determine table holding stream data for "
              + network + "." + station);
         }
         // Time to work
@@ -677,21 +677,21 @@ public:
 #endif     
         // Assemble query
         constexpr std::string_view queryPrefix{
-"SELECT sensor_identifier, EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
+"SELECT stream_identifier, EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
         };
         std::string querySuffix{
 " WHERE end_time > TO_TIMESTAMP($1) AND start_time < TO_TIMESTAMP($2) "
         };
         pqxx::params parameters{startTime,
                                 endTime};
-        for (const auto &item : tableNameAndSensorIdentifiers)
+        for (const auto &item : tableNameAndStreamIdentifiers)
         {
             int nIdentifiers = static_cast<int> (item.second.size());
             if (nIdentifiers < 1){continue;}
-            querySuffix = querySuffix + " AND (sensor_identifier = ";
+            querySuffix = querySuffix + " AND (stream_identifier = ";
             for (int i = 0; i < nIdentifiers; ++i)
             {
-                querySuffix = querySuffix + " sensor_identifier = "
+                querySuffix = querySuffix + " stream_identifier = "
                             + std::to_string(item.second.at(i));
                 if (i < nIdentifiers - 1)
                 {
@@ -721,12 +721,12 @@ public:
             reconnect(); // Throws
         }
         std::map<std::string, std::vector<Packet>> result;
-        // tableName, vector(sensor_ids)
+        // tableName, vector(stream_ids)
         auto tableToIdentifiersMap
-            = getSensorIdentifiersAndTableName(network, station);
+            = getStreamIdentifiersAndTableName(network, station);
         // Nothing to get
         if (tableToIdentifiersMap.empty()){return result;}
-        // Figure out the sensor identifier to StreamIdentifier map
+        // Figure out the stream identifier to StreamIdentifier map
         std::map<int, ::StreamIdentifier> identifierToStreamIdentifiers;
         {
         std::scoped_lock lock(mMutex);
@@ -735,15 +735,15 @@ public:
             for (const auto &id : tableIdentifiers.second)
             {
                 // name, pair<id, tableName>
-                for (const auto &sensorToIdentifierAndTableName : 
-                     mSensorToIdentifierAndTableName)
+                for (const auto &streamToIdentifierAndTableName : 
+                     mStreamToIdentifierAndTableName)
                 {
-                    if (id == sensorToIdentifierAndTableName.second.first)
+                    if (id == streamToIdentifierAndTableName.second.first)
                     {
                         try
                         {
                             ::StreamIdentifier streamIdentifier{
-                                sensorToIdentifierAndTableName.first};
+                                streamToIdentifierAndTableName.first};
                             identifierToStreamIdentifiers.insert_or_assign(
                                 id, std::move(streamIdentifier));
                         }
@@ -772,30 +772,30 @@ public:
             if (identifiers.empty()){continue;}
             // Assemble query
             constexpr std::string_view queryPrefix{
-"SELECT sensor_identifier, EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
+"SELECT stream_identifier, EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
             };
-            std::string queryMultiSensorSuffix{
-" WHERE end_time > TO_TIMESTAMP($1) AND start_time < TO_TIMESTAMP($2) AND sensor_identifier IN ("
+            std::string queryMultiStreamSuffix{
+" WHERE end_time > TO_TIMESTAMP($1) AND start_time < TO_TIMESTAMP($2) AND stream_identifier IN ("
             };
             auto nIdentifiers = static_cast<int> (identifiers.size());
             for (int i = 0; i < nIdentifiers; ++i)
             {
-                queryMultiSensorSuffix = queryMultiSensorSuffix
+                queryMultiStreamSuffix = queryMultiStreamSuffix
                                        + std::to_string(identifiers.at(i));
                 if (i < nIdentifiers - 1)
                 {
-                    queryMultiSensorSuffix = queryMultiSensorSuffix + ",";
+                    queryMultiStreamSuffix = queryMultiStreamSuffix + ",";
                 }
                 else
                 {
-                    queryMultiSensorSuffix = queryMultiSensorSuffix + ")";
+                    queryMultiStreamSuffix = queryMultiStreamSuffix + ")";
                 }
             }
             pqxx::params parameters{startTime,
                                     endTime};
             std::string query = std::string {queryPrefix}
                               + tableName
-                              + queryMultiSensorSuffix;
+                              + queryMultiStreamSuffix;
             std::vector<int> streamIdentifier;
             std::vector<double> packetStartTime;
             std::vector<double> packetSamplingRate;
@@ -873,16 +873,16 @@ public:
             spdlog::info("Attempting to reconnect prior to query...");
             reconnect(); // Throws
         }
-        // Check the sensor is there
+        // Check the stream is there
         constexpr bool checkCacheOnly{false};
-        auto [sensorIdentifier, tableName]
-             = getSensorIdentifierAndTableName(network, station,
+        auto [streamIdentifier, tableName]
+             = getStreamIdentifierAndTableName(network, station,
                                                channel, locationCode,
                                                checkCacheOnly); // Throws
-        if (sensorIdentifier < 0)
+        if (streamIdentifier < 0)
         {
             throw std::invalid_argument(
-                 "Could not obtain sensor identifier in query for "
+                 "Could not obtain stream identifier in query for "
                 + ::toName(network, station, channel, locationCode));
         }
         // Time to work
@@ -893,15 +893,15 @@ public:
         constexpr std::string_view queryPrefix{
 "SELECT EXTRACT(epoch FROM start_time), sampling_rate, number_of_samples, little_endian, compressed, data_type, data::bytea FROM "
         };
-        constexpr std::string_view querySensorSpecificSuffix{
-" WHERE sensor_identifier = $1 AND end_time > TO_TIMESTAMP($2) AND start_time < TO_TIMESTAMP($3)" 
+        constexpr std::string_view queryStreamSpecificSuffix{
+" WHERE stream_identifier = $1 AND end_time > TO_TIMESTAMP($2) AND start_time < TO_TIMESTAMP($3)" 
         }; 
-        pqxx::params parameters{sensorIdentifier,
+        pqxx::params parameters{streamIdentifier,
                                 startTime,
                                 endTime};
         std::string query = std::string {queryPrefix}
                           + tableName
-                          + std::string {querySensorSpecificSuffix};
+                          + std::string {queryStreamSpecificSuffix};
 
         std::vector<double> packetStartTime;
         std::vector<double> packetSamplingRate;
@@ -973,7 +973,7 @@ public:
     mutable std::mutex mDatabaseMutex;
     mutable std::mutex mMutex;
     mutable std::map<std::string, std::pair<int, std::string>>
-         mSensorToIdentifierAndTableName;
+         mStreamToIdentifierAndTableName;
     mutable std::unique_ptr<pqxx::connection> mConnection{nullptr};
     Credentials mCredentials;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
@@ -1092,15 +1092,15 @@ ReadOnlyClient::queryAllChannelsForStation(
     return pImpl->queryAllChannelsForStation(network, station, startTime, endTime);
 }
 
-std::set<std::string> ReadOnlyClient::getSensors() const
+std::set<std::string> ReadOnlyClient::getStreams() const
 {
-    auto sensorToTableMap = pImpl->getSensors();
-    std::set<std::string> sensors;
-    for (const auto &item : sensorToTableMap)
+    auto streamToTableMap = pImpl->getStreams();
+    std::set<std::string> streams;
+    for (const auto &item : streamToTableMap)
     {
-        sensors.insert(item.first);
+        streams.insert(item.first);
     }
-    return sensors;
+    return streams;
 }
 
 bool ReadOnlyClient::contains(const std::string &networkIn,

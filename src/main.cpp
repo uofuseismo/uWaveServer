@@ -23,7 +23,6 @@
 #include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 #include "getEnvironmentVariable.hpp"
-#include "metricsExporter.hpp"
 #include "writerMetrics.hpp"
 
 #define APPLICATION_NAME "uwsDataLoader"
@@ -162,6 +161,8 @@ public:
             spdlog::warn("No data on " + name + "'s packet - skipping");
             return;
         }
+        mObservableReceivedPacketsCounter.fetch_add(
+            1, std::memory_order_relaxed);
         //spdlog::debug("Adding " + ::toName(packet));
         mShallowPacketSanitizerQueue.push(std::move(packet));
     }
@@ -184,7 +185,15 @@ public:
                 // Handle future data
                 try
                 {
-                    if (allow){allow = mTestFuturePacket.allow(packet);}
+                    if (allow)
+                    {
+                        allow = mTestFuturePacket.allow(packet);
+                        if (!allow)
+                        {
+                            mObservableRejectedPacketsCounter.add_or_assign(
+                                "future", 1);
+                        }
+                    }
                 }
                 catch (const std::exception &e)
                 {
@@ -195,7 +204,15 @@ public:
                 // Handle expired data
                 try
                 {
-                    if (allow){allow = mTestExpiredPacket.allow(packet);}
+                    if (allow)
+                    {
+                        allow = mTestExpiredPacket.allow(packet);
+                        if (!allow)
+                        {
+                            mObservableRejectedPacketsCounter.add_or_assign(
+                               "expired", 1);
+                        }
+                    }
                 }
                 catch (const std::exception &e)
                 {
@@ -210,8 +227,21 @@ public:
                         static_cast<int> (mDataAcquisitionClients.size()) > 1)
                     {
                         allow = mTestShallowDuplicatePacket.allow(packet);
+                        if (!allow)
+                        {
+                            mObservableRejectedPacketsCounter.add_or_assign(
+                                "duplicate", 1); 
+                        }   
                     }
-                    if (allow){allow = mTestDeepDuplicatePacket.allow(packet);}
+                    if (allow)
+                    {
+                        allow = mTestDeepDuplicatePacket.allow(packet);
+                        if (!allow)
+                        {
+                            mObservableRejectedPacketsCounter.add_or_assign(
+                                "duplicate", 1);
+                        }
+                    }
                 }
                 catch (const std::exception &e)
                 {

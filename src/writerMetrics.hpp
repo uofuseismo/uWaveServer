@@ -4,13 +4,21 @@
 #include <atomic>
 #include <map>
 #include <spdlog/spdlog.h>
+#include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/metrics/meter.h>
 #include <opentelemetry/metrics/meter_provider.h>
 #include <opentelemetry/metrics/provider.h>
+#include <opentelemetry/exporters/ostream/metric_exporter_factory.h>
+#include <opentelemetry/exporters/prometheus/exporter_factory.h>
+#include <opentelemetry/exporters/prometheus/exporter_options.h>
+#include <opentelemetry/sdk/metrics/meter_context.h>
+#include <opentelemetry/sdk/metrics/meter_context_factory.h>
+#include <opentelemetry/sdk/metrics/meter_provider.h>
+#include <opentelemetry/sdk/metrics/meter_provider_factory.h>
+#include <opentelemetry/sdk/metrics/provider.h>
+#include <opentelemetry/sdk/metrics/view/instrument_selector_factory.h>
+#include <opentelemetry/sdk/metrics/view/meter_selector_factory.h>
 #include <opentelemetry/sdk/metrics/view/view_factory.h>
-//#include "uSEEDLinkToRingServer/packet.hpp"
-//#include "uSEEDLinkToRingServer/streamIdentifier.hpp"
-//#include "getNow.hpp"
 
 #define VERSION "1.2.0"
 #define SCHEMA "https://opentelemetry.io/schemas/1.2.0"
@@ -18,18 +26,72 @@
 namespace
 {
 
+void initializeMetrics(const std::string &prometheusURL)
+{
+    opentelemetry::exporter::metrics::PrometheusExporterOptions
+        prometheusOptions;
+    prometheusOptions.url = prometheusURL;
+    auto prometheusExporter
+        = opentelemetry::exporter::metrics::PrometheusExporterFactory::Create(
+              prometheusOptions);
+    // Initialize and set the global MeterProvider
+    auto providerInstance 
+        = opentelemetry::sdk::metrics::MeterProviderFactory::Create();
+    auto *meterProvider
+        = static_cast<opentelemetry::sdk::metrics::MeterProvider *>
+          (providerInstance.get());
+    meterProvider->AddMetricReader(std::move(prometheusExporter));
+
+    // Histogram config
+    auto histogramInstrumentSelector
+        = opentelemetry::sdk::metrics::InstrumentSelectorFactory::Create(
+             opentelemetry::sdk::metrics::InstrumentType::kHistogram,
+             "database_write_time_histogram",
+             "s");  
+    auto histogramMeterSelector
+        = opentelemetry::sdk::metrics::MeterSelectorFactory::Create(
+             "database_write_time", VERSION, SCHEMA);
+    auto histogramAggregationConfig
+        = std::make_shared<opentelemetry::sdk::metrics::HistogramAggregationConfig> (); 
+    histogramAggregationConfig->boundaries_
+        = std::vector<double> {0.0,
+                               0.0001,
+                               0.0005,
+                               0.0010, 
+                               0.0050,
+                               0.0100,
+                               0.5000,
+                               1.0000,
+                               1000.0};
+    auto histogramView 
+        = opentelemetry::sdk::metrics::ViewFactory::Create(
+             "database_write_time",
+             "Time required to write packet to the databaes",
+             opentelemetry::sdk::metrics::AggregationType::kHistogram,
+             histogramAggregationConfig);
+    providerInstance->AddView(std::move(histogramInstrumentSelector),
+                      std::move(histogramMeterSelector),
+                      std::move(histogramView));
+
+    std::shared_ptr<opentelemetry::metrics::MeterProvider>
+        provider(std::move(providerInstance));
+    opentelemetry::sdk::metrics::Provider::SetMeterProvider(provider);
+}
+
+void cleanupMetrics()
+{
+     std::shared_ptr<opentelemetry::metrics::MeterProvider> none;
+     opentelemetry::sdk::metrics::Provider::SetMeterProvider(none);
+}
+
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     mPacketsWrittenCounter;
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     mPacketsNotWrittenCounter;
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
-    mPacketsReceivedCounter;
+    mReceivedPacketsCounter;
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
-    mExpiredPacketsCounter;
-opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
-    mFuturePacketsCounter;
-opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
-    mInvalidPacketsCounter;
+    mRejectedPacketsCounter;
 opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>
     mWriteHistogram{nullptr};
 
@@ -93,10 +155,9 @@ public:
 
 ::ObservableMap<int64_t> mObservablePacketsWritten;
 ::ObservableMap<int64_t> mObservablePacketsNotWritten;
-::ObservableMap<int64_t> mObservablePacketsReceived;
-::ObservableMap<int64_t> mObservableInvalidPackets;
-::ObservableMap<int64_t> mObservableExpiredPackets;
-::ObservableMap<int64_t> mObservableFuturePackets;
+//::ObservableMap<int64_t> mObservablePacketsReceived;
+::ObservableMap<int64_t> mObservableRejectedPacketsCounter;
+std::atomic<int64_t> mObservableReceivedPacketsCounter{0};
 
 void observePacketsWritten(
     opentelemetry::metrics::ObserverResult observerResult,
@@ -185,7 +246,83 @@ void observePacketsNotWritten(
                 spdlog::warn(e.what());
             }
         }
-    }   
+    }
+}
+
+void observeReceivedPackets(
+        opentelemetry::metrics::ObserverResult observerResult,
+    void *)
+{
+    if (opentelemetry::nostd::holds_alternative
+        <
+            opentelemetry::nostd::shared_ptr
+            <
+                opentelemetry::metrics::ObserverResultT<int64_t>
+            >
+        > (observerResult))
+    {
+        auto observer = opentelemetry::nostd::get
+        <
+            opentelemetry::nostd::shared_ptr
+            <
+               opentelemetry::metrics::ObserverResultT<int64_t>
+            >
+        > (observerResult);
+        try
+        {
+            auto value = mObservableReceivedPacketsCounter.load();
+            observer->Observe(value);
+        }
+        catch (const std::exception &e)
+        {
+
+        }
+    }
+}
+
+void observeRejectedPackets(
+    opentelemetry::metrics::ObserverResult observerResult,
+    void *)
+{
+    if (opentelemetry::nostd::holds_alternative
+        <
+            opentelemetry::nostd::shared_ptr
+            <
+                opentelemetry::metrics::ObserverResultT<int64_t>
+            >
+        > (observerResult))
+    {
+        auto observer = opentelemetry::nostd::get
+        <
+            opentelemetry::nostd::shared_ptr
+            <
+               opentelemetry::metrics::ObserverResultT<int64_t>
+            >
+        > (observerResult);
+        auto keys = mObservableRejectedPacketsCounter.keys();
+        for (const auto &key : keys)
+        {
+            try
+            {
+                auto value = mObservableRejectedPacketsCounter[key];
+                if (value)
+                {
+                    std::map<std::string, std::string>
+                       attribute{ {"reason", key} };
+                    observer->Observe(*value, attribute);
+                }
+                else
+                {
+                    throw std::runtime_error("Could not find " + key
+                                           + " in map");
+                }
+            }
+            catch (const std::exception &e)
+            {
+                spdlog::warn(e.what());
+            }
+        }
+    }
 }
 /*
 
@@ -248,7 +385,23 @@ void initializeWriterMetrics(const std::string &applicationName)
     // Create the metric instruments (instruments are used to report
     // measurements)
 
-    // Succesful responses
+    // Packets received
+    mReceivedPacketsCounter
+        = meter->CreateInt64ObservableCounter(
+             "received_packets_counter",
+             "Number of packets received from telemetry",
+             "packets");
+    mReceivedPacketsCounter->AddCallback(observeReceivedPackets, nullptr);
+
+    // Imported packets that were rejected
+    mRejectedPacketsCounter
+        = meter->CreateInt64ObservableCounter(
+             "rejected_packets_counter",
+             "Number of packets rejected from the import mechanism as they contain future data, expired, or duplicate data",
+             "packets");
+    mRejectedPacketsCounter->AddCallback(observeRejectedPackets, nullptr);
+
+    // Packets succesfully written to database
     mPacketsWrittenCounter
         = meter->CreateInt64ObservableCounter(
              "packets_written_to_database_counter",

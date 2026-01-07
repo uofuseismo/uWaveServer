@@ -39,8 +39,8 @@ public:
                                 const std::string &station,
                                 const std::string &channel,
                                 const std::string &locationCode) const;
-    /// @result Get most up-to-date list of sensors in the database.
-    //[[nodiscard]] std::set<std::string> getSensors() const;
+    /// @result Get most up-to-date list of streams in the database.
+    //[[nodiscard]] std::set<std::string> getStreams() const;
     
     /// @brief (Re)Establishes a connection.
     void connect();

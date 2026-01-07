@@ -93,7 +93,7 @@ TEST_CASE("uWaveServer::Database", "[client]")
     readCredentials.enableReadOnly();
     UWaveServer::Database::ReadOnlyClient readClient{readCredentials};
 
-auto sensors = readClient.getSensors();
+auto streams = readClient.getStreams();
 if (readClient.contains("WY", "YLT", "HHZ", "01"))
 {
   std::cout << "have it" << std::endl;
