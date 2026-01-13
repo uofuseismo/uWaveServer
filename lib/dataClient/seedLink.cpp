@@ -23,6 +23,12 @@ using namespace UWaveServer::DataClient;
 
 namespace
 {
+
+void seedLinkLogger(const char *message)
+{
+    spdlog::debug(std::string {message});
+}
+
 /// @brief Unpacks a miniSEED record.
 [[nodiscard]]
 std::vector<UWaveServer::Packet>
@@ -298,6 +304,18 @@ public:
             }
             else if (returnValue == SLNOPACKET)
             {
+                // If it has been a while since there's been data then it is 
+                // best to terminate.
+                if (mSEEDLinkConnection->stat->conn_state == SLstat::STREAMING &&
+                    mSEEDLinkConnection->netto &&
+                    mSEEDLinkConnection->stat->netto_time && 
+                    mSEEDLinkConnection->stat->netto_time < sl_nstime())
+                {
+                    spdlog::error("No data for " 
+                                + std::to_string(mSEEDLinkConnection->netto)
+                                + " seconds - issuing terminate");
+                    terminate(); 
+                }
                 spdlog::debug("No data from sl_collect");
                 std::this_thread::sleep_for(timeToSleep);
                 continue;
@@ -315,7 +333,15 @@ public:
                 continue;
             }
         }
+        if (!mKeepRunning)
+        {
+            spdlog::error(
+               "Thread left SEEDLink polling loop prior to program stop"); 
+            throw std::runtime_error(
+               "Likely seedlink error - bailed on polling");
+        }
         spdlog::info("Thread leaving SEEDLink polling loop");
+        
         mConnected = false;
     }
     /// Initialize
@@ -417,7 +443,7 @@ public:
             spdlog::warn("Failed to set keep-alive connection");
         }
 #ifndef NDEBUG
-        assert(mSEEDLinkConnection->dialup == 0);
+        assert(mSEEDLinkConnection->dialup == static_cast<int> (closeConnection));
 #endif
         // Time out and reconnect delay
         auto networkTimeOut

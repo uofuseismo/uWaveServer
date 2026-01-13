@@ -303,6 +303,7 @@ public:
 
         const std::chrono::milliseconds mTimeOut{10};
 //int printEvery{0};
+        int consecutiveFailureCounter{0};
         int nRowsWritten{0};
         double averageTime{0};
         double cumulativeTime{0};
@@ -318,6 +319,7 @@ public:
                 {
                     auto t1 = std::chrono::high_resolution_clock::now(); 
                     mDatabaseClients.at(iThread)->write(packet);
+                    consecutiveFailureCounter = 0;
                     auto t2 = std::chrono::high_resolution_clock::now();
                     double duration
                         = std::chrono::duration_cast<std::chrono::microseconds>
@@ -364,6 +366,14 @@ public:
                     spdlog::warn("Failed to add packet to database because "
                                + std::string {e.what()});
                     mObservablePacketsNotWritten.add_or_assign(databaseKey, 1);
+                    consecutiveFailureCounter = consecutiveFailureCounter + 1;
+                    if (consecutiveFailureCounter == 100)
+                    {
+                        spdlog::critical(
+                           "Too many consecutive db write failures");
+                        throw std::runtime_error(
+                           "Too many consecutive failures writing packets");
+                    }
                 }
             }
         }

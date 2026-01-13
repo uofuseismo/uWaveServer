@@ -13,7 +13,7 @@ public:
     std::string mAddress{"rtserve.iris.washington.edu"};
     std::filesystem::path mStateFile;
     std::vector<StreamSelector> mSelectors;
-    std::chrono::seconds mNetworkTimeOut{600};
+    std::chrono::seconds mNetworkTimeOut{60};
     std::chrono::seconds mNetworkDelay{30};
     int mSEEDRecordSize{512};
     int mMaxQueueSize{8192};

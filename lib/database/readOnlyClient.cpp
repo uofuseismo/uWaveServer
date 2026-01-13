@@ -332,7 +332,8 @@ public:
         std::scoped_lock lock(mDatabaseMutex);
         if (mConnection)
         {
-            return mConnection->dbname() != nullptr;
+            return mConnection->is_open();
+            //return mConnection->dbname() != nullptr;
         }
         return false;
     }
