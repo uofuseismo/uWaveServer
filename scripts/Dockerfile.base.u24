@@ -34,15 +34,15 @@ RUN mkdir -p /home/ubuntu &&\
     mkdir -p /usr/local/include &&\
     mkdir -p /usr/local/lib &&\
     cd /home/ubuntu &&\
-    wget -q https://zlib.net/zlib-1.3.1.tar.gz &&\
-    tar -xf zlib-1.3.1.tar.gz &&\
-    rm zlib-1.3.1.tar.gz &&\
-    cd zlib-1.3.1  &&\
+    wget -q https://zlib.net/zlib-1.3.2.tar.gz &&\
+    tar -xf zlib-1.3.2.tar.gz &&\
+    rm zlib-1.3.2.tar.gz &&\
+    cd zlib-1.3.2  &&\
     ./configure --prefix=/usr/local &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -r zlib-1.3.1
+    rm -r zlib-1.3.2
 
 # I don't like how ubuntu installs boost - I get everything but I really
 # don't need everything
@@ -58,15 +58,15 @@ RUN cd /home/ubuntu &&\
 
 # libmseed, libslink, catch2, spdlog, nlohmann::json
 RUN cd /home/ubuntu &&\
-    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.2.3.tar.gz &&\
-    tar -xf v3.2.3.tar.gz &&\
-    rm v3.2.3.tar.gz &&\
-    cd libmseed-3.2.3 &&\
+    wget -q https://github.com/EarthScope/libmseed/archive/refs/tags/v3.2.4.tar.gz &&\
+    tar -xf v3.2.4.tar.gz &&\
+    rm v3.2.4.tar.gz &&\
+    cd libmseed-3.2.4 &&\
     cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/usr/local &&\
     cd build &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -r libmseed-3.2.3 &&\
+    rm -r libmseed-3.2.4 &&\
     wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.2.0.tar.gz &&\
     tar -xf v4.2.0.tar.gz &&\ 
     rm v4.2.0.tar.gz &&\
@@ -88,16 +88,16 @@ RUN cd /home/ubuntu &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -rf Catch2-3.12.0/ &&\
-    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.16.0.tar.gz &&\
-    tar -xf v1.16.0.tar.gz &&\
-    rm v1.16.0.tar.gz &&\
-    cd spdlog-1.16.0 &&\
+    wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz &&\
+    tar -xf v1.17.0.tar.gz &&\
+    rm v1.17.0.tar.gz &&\
+    cd spdlog-1.17.0 &&\
     cmake -B build -DCMAKE_BUILD_TYPE=Release -DSPDLOG_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/usr/local/ &&\
     cd build &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf spdlog-1.16.0 &&\
+    rm -rf spdlog-1.17.0 &&\
     wget -q https://github.com/jtv/libpqxx/archive/refs/tags/7.10.4.tar.gz &&\
     tar -xf 7.10.4.tar.gz &&\
     rm -f 7.10.4.tar.gz &&\

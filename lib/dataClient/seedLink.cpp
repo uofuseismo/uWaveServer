@@ -296,7 +296,7 @@ public:
             }
             else if (returnValue == SLTOOLARGE)
             {
-                spdlog::warn("Pyaload length "
+                spdlog::warn("Payload length "
                            + std::to_string(seedLinkPacketInfo->payloadlength)
                            + " exceeds " + std::to_string(seedLinkBufferSize) 
                            + "; skipping");
@@ -305,16 +305,22 @@ public:
             else if (returnValue == SLNOPACKET)
             {
                 // If it has been a while since there's been data then it is 
-                // best to terminate.
+                // best to terminate.  Note, the small offset is because seedlink
+                // hits this window, waits, then updates netto_time.
+                constexpr std::chrono::nanoseconds nanoSecondsOffset {
+                   std::chrono::microseconds{100}
+                };
                 if (mSEEDLinkConnection->stat->conn_state == SLstat::STREAMING &&
                     mSEEDLinkConnection->netto &&
                     mSEEDLinkConnection->stat->netto_time && 
-                    mSEEDLinkConnection->stat->netto_time < sl_nstime())
+                    mSEEDLinkConnection->stat->netto_time <
+                       sl_nstime() - nanoSecondsOffset.count())
                 {
                     spdlog::error("No data for " 
                                 + std::to_string(mSEEDLinkConnection->netto)
                                 + " seconds - issuing terminate");
                     terminate(); 
+                    break;
                 }
                 spdlog::debug("No data from sl_collect");
                 std::this_thread::sleep_for(timeToSleep);
