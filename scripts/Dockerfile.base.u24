@@ -27,9 +27,13 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get install -y libssl-dev &&\
     apt-get install -y openssl &&\
     apt-get install -y libcurl4-openssl-dev &&\
-    apt-get install -y libpq-dev
+    apt-get install -y libpq-dev &&\
+    apt-get install -y ninja-build &&\
+    apt-get install -y bazel-bootstrap &&\
+    apt-get install -y libbenchmark-dev
 
 # we'll be using compression - zlib
+WORKDIR /home/ubuntu
 RUN mkdir -p /home/ubuntu &&\
     mkdir -p /usr/local/include &&\
     mkdir -p /usr/local/lib &&\
@@ -43,6 +47,13 @@ RUN mkdir -p /home/ubuntu &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -r zlib-1.3.2
+
+# Conan
+RUN cd /home/ubuntu &&\
+    wget https://github.com/conan-io/conan/releases/download/2.26.1/conan-2.26.1-linux-x86_64.tgz &&\
+    tar -xvf conan-2.26.1-linux-x86_64.tgz &&\
+    rm conan-2.26.1-linux-x86_64.tgz &&\
+    mv bin/** /usr/local/bin/
 
 # I don't like how ubuntu installs boost - I get everything but I really
 # don't need everything
@@ -129,6 +140,28 @@ RUN cd /home/ubuntu &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -rf Crow-1.3.0/
+
+RUN cd /home/ubuntu &&\ 
+    wget https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.25.0.tar.gz &&\ 
+    tar -xf v1.25.0.tar.gz &&\ 
+    rm v1.25.0.tar.gz &&\ 
+    cd opentelemetry-cpp-1.25.0 &&\ 
+    cmake -B build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DWITH_PROMETHEUS=OFF -DCMAKE_CXX_COMPILER=clang++ -DWITH_EXAMPLES=OFF -DWITH_ABI_VERSION_1=OFF -DWITH_ABI_VERSION_2=ON -DWITH_OTLP_HTTP=ON &&\
+    cd build &&\ 
+    make &&\ 
+    make install &&\ 
+    cd /home/ubuntu &&\ 
+    rm -r opentelemetry-cpp-1.25.0 &&\ 
+    git clone --recurse-submodules -b v1.76.0 --depth 1 --shallow-submodules https://github.com/grpc/grpc &&\ 
+    cd grpc &&\ 
+    mkdir build &&\ 
+    cmake -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=17 -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DgRPC_BUILD_GRPCPP_OTEL_PLUGIN=ON -DCMAKE_INSTALL_PREFIX=/usr/local/grpc &&\
+    cd build &&\ 
+    make -j 8 &&\ 
+    make install &&\ 
+    cd /home/ubuntu &&\ 
+    rm -rf grpc
+
 
 WORKDIR /home/ubuntu
 

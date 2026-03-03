@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.28)
-project(uWaveServer VERSION 0.2.0 LANGUAGES CXX)
+project(uWaveServer VERSION 0.3.0 LANGUAGES CXX)
 enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
 option(ENABLE_COMPRESSION "Enable compression for the web server backend" ON)
 option(BUILD_CONTAINER "Builds a container for CI/CD workflows" ON)
+option(BUILD_TESTS "Compile unit tests" ON)
 #option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
@@ -35,8 +36,11 @@ find_package(libmseed REQUIRED)
 find_package(SEEDLink REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
 find_package(opentelemetry-cpp REQUIRED)
-find_package(Catch2 3)
+if (${BUILD_TESTS})
+   find_package(Catch2 3 REQUIRED)
+endif()
 find_package(Crow)
 if (${ENABLE_SSL})
    if (NOT BUILD_SHARED_LIBS)
@@ -76,68 +80,101 @@ set(LIBRARY_SRC
     lib/packetSanitizerOptions.cpp
     lib/version.cpp
     )
+set(LIBRARY_HEADER_FILES
+    include/uWaveServer/dataClient/dataClient.hpp
+    include/uWaveServer/dataClient/streamSelector.hpp
+    include/uWaveServer/database/writeClient.hpp
+    include/uWaveServer/database/readOnlyClient.hpp
+    include/uWaveServer/database/credentials.hpp
+    include/uWaveServer/testDuplicatePacket.hpp
+    include/uWaveServer/testExpiredPacket.hpp
+    include/uWaveServer/testFuturePacket.hpp
+    include/uWaveServer/packet.hpp
+    include/uWaveServer/packetSanitizer.hpp
+    include/uWaveServer/packetSanitizerOptions.hpp
+    include/uWaveServer/version.hpp)
 if (${SEEDLink_FOUND})
    message("Using SEEDLink")
    set(LIBRARY_SRC ${LIBRARY_SRC}
        lib/dataClient/seedLink.cpp
        lib/dataClient/seedLinkOptions.cpp)
+   set(LIBRARY_HEADER_FILES ${LIBRARY_HEADER_FILES}
+       include/uWaveServer/dataClient/seedLink.hpp
+       include/uWaveServer/dataClient/seedLinkOptions.hpp)
+endif()
+if (${gRPC_FOUND})
+   message("Using gRPC")
+   set(IMPORT_PROTO_SRC
+       uDataPacketServiceAPI/v1/data_type.proto
+       uDataPacketServiceAPI/v1/stream_identifier.proto
+       uDataPacketServiceAPI/v1/packet.proto
+       uDataPacketServiceAPI/v1/subscription_request.proto
+       uDataPacketServiceAPI/v1/subscribe_to_all_request.proto
+       uDataPacketServiceAPI/v1/broadcast.proto)
+   set(EXPORT_PROTO_SRC ""
+       )
+   set(LIBRARY_SRC ${LIBRARY_SRC}
+       lib/dataClient/grpc.cpp
+       lib/dataClient/grpcOptions.cpp)
+   set(LIBRARY_HEADER_FILES ${LIBRARY_HEADER_FILES}
+       include/uWaveServer/dataClient/grpc.hpp
+       include/uWaveServer/dataClient/grpcOptions.hpp)
 endif()
 
 if (BUILD_SHARED_LIBS)
    message("Will build shared library")
-   add_library(uWaveServer SHARED ${LIBRARY_SRC})
-   set_target_properties(uWaveServer PROPERTIES
+   add_library(libuWaveServer SHARED ${LIBRARY_SRC})
+   add_library(uWaveServer::libuWaveServer ALIAS libuWaveServer)
+   set_target_properties(libuWaveServer PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES 
                          CXX_EXTENSIONS NO) 
 else()
    message("Will build static library")
-   add_library(uWaveServer STATIC ${LIBRARY_SRC})
-   set_target_properties(uWaveServer PROPERTIES
+   add_library(libuWaveServer STATIC ${LIBRARY_SRC})
+   add_library(uWaveServer::libuWaveServer ALIAS libuWaveServer)
+   set_target_properties(libuWaveServer PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO)
-   #                      OUTPUT_NAME uWaveServer-static)
 endif()
-target_sources(uWaveServer
+target_sources(libuWaveServer
                PUBLIC
                FILE_SET HEADERS
                BASE_DIRS
                   ${CMAKE_CURRENT_SOURCE_DIR}
                FILES 
-                  include/uWaveServer/dataClient/dataClient.hpp
-                  include/uWaveServer/dataClient/streamSelector.hpp
-                  include/uWaveServer/database/writeClient.hpp
-                  include/uWaveServer/database/readOnlyClient.hpp
-                  include/uWaveServer/database/credentials.hpp
-                  include/uWaveServer/testDuplicatePacket.hpp
-                  include/uWaveServer/testExpiredPacket.hpp
-                  include/uWaveServer/testFuturePacket.hpp
-                  include/uWaveServer/packet.hpp
-                  include/uWaveServer/packetSanitizer.hpp
-                  include/uWaveServer/packetSanitizerOptions.hpp
-                  include/uWaveServer/version.hpp)
-target_link_libraries(uWaveServer
+                  ${LIBRARY_HEADER_FILES}
+               )
+target_link_libraries(libuWaveServer
                       PUBLIC libpqxx::pqxx
                       PRIVATE spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
-#if (${ZLIB_FOUND})
-#   target_link_libraries(uWaveServer PRIVATE ZLIB::ZLIB)
-   target_compile_definitions(uWaveServer PRIVATE WITH_ZLIB)
-#endif()
-target_include_directories(uWaveServer
+target_compile_definitions(libuWaveServer PRIVATE WITH_ZLIB)
+target_include_directories(libuWaveServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-                           #PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/uWaveServer>
                            PUBLIC $<INSTALL_INTERFACE:include>)
 if (${SEEDLink_FOUND})
-   target_link_libraries(uWaveServer PRIVATE SEEDLink::SEEDLink)
-   target_compile_definitions(uWaveServer PRIVATE WITH_SEEDLINK)
+   target_link_libraries(libuWaveServer PRIVATE SEEDLink::SEEDLink)
+   target_compile_definitions(libuWaveServer PRIVATE WITH_SEEDLINK)
 endif()
-if (${Earthworm_FOUND})
-#   target_link_libraries(uWaveServer PRIVATE ${EARTHWORM_UTILITY_LIBRARY} ${EARTHWORM_MT_LIBRARY})
-#   target_include_directories(uWaveServer PRIVATE ${EARTHWORM_INCLUDE_DIR})
-    target_compile_definitions(uWaveServer PRIVATE WITH_EARTHWORM)
+if (${gRPC_FOUND})
+   #protobuf_generate(TARGET libuWaveServer
+   #                  LANGUAGE cpp
+   #                 )
+   #protobuf_generate(TARGET libuWaveServer
+   #                  LANGUAGE grpc
+   #                  PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+   #                  PLUGIN_OPTIONS generate_mock_code=true
+   #                  GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
+   #                 )
+   target_link_libraries(libuWaveServer PRIVATE gRPC::grpc gRPC::grpc++)
 endif()
+#if (${Earthworm_FOUND})
+#   target_link_libraries(libuWaveServer PRIVATE ${EARTHWORM_UTILITY_LIBRARY} ${EARTHWORM_MT_LIBRARY})
+#   target_include_directories(libuWaveServer PRIVATE ${EARTHWORM_INCLUDE_DIR})
+#   target_compile_definitions(libuWaveServer PRIVATE WITH_EARTHWORM)
+#endif()
 
 add_executable(uwsDataLoader
                src/main.cpp)
@@ -149,7 +186,7 @@ target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
-                      PRIVATE uWaveServer
+                      PRIVATE libuWaveServer
                               opentelemetry-cpp::prometheus_exporter 
                               spdlog::spdlog_header_only
                               Boost::program_options)
@@ -163,7 +200,7 @@ if (${Crow_FOUND})
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO)
    target_link_libraries(uHTTPWaveServer
-                         PRIVATE uWaveServer
+                         PRIVATE uWaveServer::libuWaveServer
                                  Boost::program_options
                                  Crow::Crow
                                  spdlog::spdlog_header_only
@@ -198,21 +235,25 @@ endif()
 #                      uWaveServer spdlog::spdlog_header_only Boost::program_options Boost::url
 #                      nlohmann_json::nlohmann_json libmseed::libmseed)# SOCI::Core SOCI::PostgreSQL)
 
-if (${Catch2_FOUND})
-   message("Found catch")
+if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
+   message("Will build unit tests")
+   set(TEST_SRC 
+       testing/pack.cpp
+       testing/packet.cpp
+       testing/testPacket.cpp)
+   if (${gRPC_FOUND})
+      set(TEST_SRC ${TEST_SRC}
+          testing/grpc.cpp)
+   endif()
    add_executable(unitTests
-                  testing/pack.cpp
-                  testing/packet.cpp
-                  testing/testPacket.cpp
-                  #testing/database.cpp
-                  )
+                  ${TEST_SRC})
    set_target_properties(unitTests PROPERTIES
                          CXX_STANDARD 20
                          CXX_STANDARD_REQUIRED YES
                          CXX_EXTENSIONS NO)
    target_link_libraries(unitTests PRIVATE
                          Catch2::Catch2 Catch2::Catch2WithMain
-                         uWaveServer spdlog::spdlog_header_only mseed::mseed_static
+                         uWaveServer::libuWaveServer spdlog::spdlog_header_only mseed::mseed_static
                          ZLIB::ZLIB)
    target_include_directories(unitTests
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -264,14 +305,20 @@ endif()
 ##########################################################################################
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-configure_package_config_file(
-    cmake/${PROJECT_NAME}Config.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+configure_file(${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
+               ${PROJECT_NAME}Config.cmake @ONLY)
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-    VERSION "${version}"
-    COMPATIBILITY AnyNewerVersion
-)
+   ${PROJECT_NAME}ConfigVersion.cmake
+   VERSION ${PACKAGE_VERSION}
+   COMPATIBILITY AnyNewerVersion)
+#configure_package_config_file(
+#    cmake/${PROJECT_NAME}Config.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+#    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+#write_basic_package_version_file(
+#    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+#    VERSION "${version}"
+#    COMPATIBILITY AnyNewerVersion
+#)
 #install(TARGETS uWaveServer uwsWebServer uwsDataLoader
 #        EXPORT ${PROJECT_NAME}-targets
 #        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -279,8 +326,8 @@ write_basic_package_version_file(
 #        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 #        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 #        COMPONENT Runtime)
-install(TARGETS uWaveServer
-        EXPORT ${PROJECT_NAME}-targets
+install(TARGETS libuWaveServer
+        EXPORT ${PROJECT_NAME}Targets
         FILE_SET HEADERS
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT libraries)
@@ -290,9 +337,9 @@ install(TARGETS uHTTPWaveServer uwsDataLoader
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         COMPONENT headers)
-export(EXPORT ${PROJECT_NAME}-targets
+export(EXPORT ${PROJECT_NAME}Targets
        FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake")
-install(EXPORT ${PROJECT_NAME}-targets
+install(EXPORT ${PROJECT_NAME}Targets
         FILE ${PROJECT_NAME}Targets.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 install(FILES

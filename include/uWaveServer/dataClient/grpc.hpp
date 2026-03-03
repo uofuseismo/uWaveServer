@@ -1,23 +1,23 @@
-#ifndef UWAVE_SERVER_DATA_CLIENT_SEED_LINK_HPP
-#define UWAVE_SERVER_DATA_CLIENT_SEED_LINK_HPP
+#ifndef UWAVE_SERVER_DATA_CLIENT_GRPC_HPP
+#define UWAVE_SERVER_DATA_CLIENT_GRPC_HPP
 #include <uWaveServer/dataClient/dataClient.hpp>
 namespace UWaveServer::DataClient
 {
- class SEEDLinkOptions;
+ class GRPCOptions;
 }
 namespace UWaveServer::DataClient
 {
-/// @class SEEDLink seedLink.hpp
-/// @brief Receives seismic data packets via SEEDLink.
+/// @class GRPC grpc.hpp
+/// @brief Receives seismic data packets via gRPC and the uDataPacketServiceAPI.
 /// @copyright Ben Baker (University of Utah) distributed under the MIT
 ///            NO AI license.
-class SEEDLink : public IDataClient
+class GRPC : public IDataClient
 {
 public:
-    SEEDLink(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
-             const SEEDLinkOptions &options);
+    GRPC(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
+             const GRPCOptions &options);
     /// @brief Destructor.
-    ~SEEDLink() override;
+    ~GRPC() override;
     /// @brief Connects to the data source.
     void connect() override;
     /// @brief Starts the acquisition.
@@ -31,8 +31,8 @@ public:
     /// @result The client type.
     [[nodiscard]] std::string getType() const noexcept final;
 private:
-    class SEEDLinkImpl;
-    std::unique_ptr<SEEDLinkImpl> pImpl;
+    class GRPCImpl;
+    std::unique_ptr<GRPCImpl> pImpl;
 };
 }
 #endif

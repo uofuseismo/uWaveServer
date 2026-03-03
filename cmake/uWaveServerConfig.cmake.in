@@ -14,22 +14,28 @@
 #   uWaveServer_LIBRARY - 
 #   uWaveServer_STATIC_LIBRARY
 
-@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
 
-if(NOT TARGET uWaveServer AND NOT TARGET uWaveServer-static)
-  include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
-
-  if (TARGET uWaveServer)
-    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer INTERFACE_INCLUDE_DIRECTORIES)
-  else ()
-    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer-static INTERFACE_INCLUDE_DIRECTORIES)
-  endif()
-
-  if (TARGET uWaveServer)
-    get_target_property(@PROJECT_NAME@_LIBRARY uWaveServer LOCATION)
-  endif()
-  if (TARGET uWaveServer-static)
-    get_target_property(@PROJECT_NAME@_STATIC_LIBRARY uWaveServer-static LOCATION)
-  endif()
+if (NOT TARGET uWaveServer::@PROJECT_NAME@)
+   include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
 endif()
+
+#@PACKAGE_INIT@
+
+#if(NOT TARGET uWaveServer AND NOT TARGET uWaveServer-static)
+#  include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+
+#  if (TARGET uWaveServer)
+#    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer INTERFACE_INCLUDE_DIRECTORIES)
+#  else ()
+#    get_target_property(@PROJECT_NAME@_INCLUDE_DIR uWaveServer-static INTERFACE_INCLUDE_DIRECTORIES)
+#  endif()
+
+#  if (TARGET uWaveServer)
+#    get_target_property(@PROJECT_NAME@_LIBRARY uWaveServer LOCATION)
+#  endif()
+#  if (TARGET uWaveServer-static)
+#    get_target_property(@PROJECT_NAME@_STATIC_LIBRARY uWaveServer-static LOCATION)
+#  endif()
+#endif()
 
