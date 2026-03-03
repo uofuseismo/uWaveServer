@@ -115,7 +115,8 @@ if (${gRPC_FOUND})
        )
    set(LIBRARY_SRC ${LIBRARY_SRC}
        lib/dataClient/grpc.cpp
-       lib/dataClient/grpcOptions.cpp)
+       lib/dataClient/grpcOptions.cpp
+       ${IMPORT_PROTO_SRC})
    set(LIBRARY_HEADER_FILES ${LIBRARY_HEADER_FILES}
        include/uWaveServer/dataClient/grpc.hpp
        include/uWaveServer/dataClient/grpcOptions.hpp)
@@ -153,21 +154,22 @@ target_compile_definitions(libuWaveServer PRIVATE WITH_ZLIB)
 target_include_directories(libuWaveServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
                            PUBLIC $<INSTALL_INTERFACE:include>)
 if (${SEEDLink_FOUND})
    target_link_libraries(libuWaveServer PRIVATE SEEDLink::SEEDLink)
    target_compile_definitions(libuWaveServer PRIVATE WITH_SEEDLINK)
 endif()
 if (${gRPC_FOUND})
-   #protobuf_generate(TARGET libuWaveServer
-   #                  LANGUAGE cpp
-   #                 )
-   #protobuf_generate(TARGET libuWaveServer
-   #                  LANGUAGE grpc
-   #                  PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
-   #                  PLUGIN_OPTIONS generate_mock_code=true
-   #                  GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
-   #                 )
+   protobuf_generate(TARGET libuWaveServer
+                     LANGUAGE cpp
+                    )
+   protobuf_generate(TARGET libuWaveServer
+                     LANGUAGE grpc
+                     PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+                     PLUGIN_OPTIONS generate_mock_code=true
+                     GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
+                    )
    target_link_libraries(libuWaveServer PRIVATE gRPC::grpc gRPC::grpc++)
 endif()
 #if (${Earthworm_FOUND})
