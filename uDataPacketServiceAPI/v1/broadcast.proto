@@ -1,0 +1,21 @@
+edition = "2023";
+
+package UDataPacketServiceAPI.V1;
+
+import "uDataPacketServiceAPI/v1/subscription_request.proto";
+import "uDataPacketServiceAPI/v1/subscribe_to_all_request.proto";
+import "uDataPacketServiceAPI/v1/packet.proto";
+
+/*!
+ * The broadcast service propagates data packets to subscribed clients.   
+ */
+service Broadcast {
+    /*! 
+     * The client receives data from all streams.
+     */
+    rpc SubscribeToAll(SubscribeToAllRequest) returns(stream Packet) {}; 
+    /*!
+     * The client receives data from a selected set of streams.
+     */
+    rpc Subscribe(SubscriptionRequest) returns(stream Packet) {};
+}

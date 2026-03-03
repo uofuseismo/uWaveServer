@@ -1,0 +1,16 @@
+edition = "2023";
+
+package UDataPacketServiceAPI.V1;
+import "google/protobuf/duration.proto";
+import "uDataPacketServiceAPI/v1/stream_identifier.proto";
+
+/*!
+ * Requests data from specific streams.
+ */
+message SanitizedSubscriptionRequest {
+    string identifier = 1 [default = ""]; /// A request identifier.
+    google.protobuf.Duration future_tolerance = 2; /// Packets whose end time exeeds the current time + the future tolerance will not be sent.  Typically this should be zero.
+    google.protobuf.Duration latency_tolerance = 3; /// Pakets whose start times are less than the current time - the latency tolererance will not be sent.  Typically this should be a few minutes but this can be very large if you want to collect all data.
+    bool remove_duplicates = 4 [default = true]; /// If true then the server will attempt to deduplicate packets.  Duplicates may still exist. 
+    repeated StreamIdentifier selections = 5; /// The list of streams from which to receive data. 
+}

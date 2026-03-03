@@ -1,0 +1,10 @@
+edition = "2023";
+
+package UDataPacketServiceAPI.V1;
+
+/*!
+ * Requests data from all available streams.
+ */
+message SubscribeToAllRequest {
+    string identifier = 1 [default = ""]; /// A request identifier.
+}
