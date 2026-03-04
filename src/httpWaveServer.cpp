@@ -4,6 +4,7 @@
 #include <vector>
 #include <chrono>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -22,6 +23,7 @@
 #define APPLICATION_NAME "uHTTPWaveServer"
 
 import GetEnvironmentVariable;
+import Logger;
 
 namespace 
 {
@@ -245,38 +247,41 @@ crow::json::wvalue documentAPI()
 class CustomLogger : public crow::ILogHandler
 {
 public:
-    CustomLogger()
+    CustomLogger() :
+        logger(spdlog::stdout_color_st("console"))
     {
     }
     void log(const std::string &message, 
              crow::LogLevel level)
     {
+        if (logger == nullptr){return;}
         // Most common
         if (level == crow::LogLevel::Info)
         {
-            spdlog::info(message);
+            logger->info(message); //spdlog::info(logger, message);
         }
         else if (level == crow::LogLevel::Warning)
         {
-            spdlog::warn(message);
+            logger->warn(message); //spdlog::warn(message);
         }
         else if (level == crow::LogLevel::Critical)
         {
-            spdlog::critical(message);
+            logger->critical(message); //spdlog::critical(message);
         }
         else if (level == crow::LogLevel::Error)
         {
-            spdlog::error(message);
+            logger->error(message); //spdlog::error(message);
         }
         else if (level == crow::LogLevel::Debug)
         {
-            spdlog::debug(message);
+            logger->debug(message); //spdlog::debug(message);
         }
         else
         {
-            spdlog::warn("Unhandled log level - logging " + message);
+            logger->warn("Unhandled log level - logging " + message); //spdlog::warn("Unhandled log level - logging " + message);
         }
     }
+    std::shared_ptr<spdlog::logger> logger{nullptr};
 };
 
 int main(int argc, char *argv[])
@@ -662,7 +667,7 @@ int main(int argc, char *argv[])
                 constexpr int recordLength{512};
                 mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 auto payload
-                    = ::toMiniSEED(packets, recordLength, wantMiniSEED3);
+                    = ::toMiniSEED(packets, recordLength, wantMiniSEED3, customLogger.logger.get());
                 //spdlog::info("returning : " +  std::to_string (packets.size()) + " with payload size " + std::to_string (payload.size()));
                 crow::response response;
                 response.set_header("Content-Type", "application/octet-stream");

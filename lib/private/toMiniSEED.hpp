@@ -69,7 +69,8 @@ int getMiniSEEDEncoding(const int encoding, const bool canDoSTEIM2)
 [[nodiscard]]
 std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                        const int maxRecordLength = 512, //-1 results in default which is 4096
-                       const bool useMiniSEED3 = true)
+                       const bool useMiniSEED3 = true,
+                       spdlog::logger *logger = nullptr)
 {
     std::string outputBuffer;
     if (packets.empty()){return outputBuffer;}
@@ -135,7 +136,10 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                                   const_cast<char *>(channel.c_str()));
                 if (sidLength < 1)
                 {
-                    spdlog::error("Failed to pack SID");
+                    if (logger)
+                    {
+                        SPDLOG_LOGGER_ERROR(logger, "Failed to pack SID");
+                    }
                     continue;
                 }
                 msRecord->datasamples = nullptr;
@@ -197,7 +201,11 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
                                                         msTolerance); // NULL is default tolerance
                 if (msTraceSegment == nullptr)
                 {
-                    spdlog::warn("Failed to add miniSEED record to trace list");
+                    if (logger)
+                    {
+                        SPDLOG_LOGGER_WARN(logger,
+                                           "Failed to add miniSEED record to trace list");
+                    }
                     msRecord->datasamples = nullptr;
                     //msr3_free(&msRecord);
                     continue;
@@ -208,12 +216,18 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
             }
             else
             {
-                spdlog::warn("MiniSEED record pointer is null");
+                if (logger)
+                {
+                    SPDLOG_LOGGER_WARN(logger, "MiniSEED record pointer is null");
+                }
             }
         }
         else
         {
-            spdlog::warn("Empty packet");
+            if (logger)
+            {
+                SPDLOG_LOGGER_WARN(logger, "Empty packet");
+            }
         }
     }
     // Write the data to a string buffer
@@ -238,26 +252,28 @@ std::string toMiniSEED(const std::vector<UWaveServer::Packet> &packets,
     {
         if (packedSamplesCount == expectedNumberOfSamplesToPack)
         {
-            spdlog::debug("Packed "
-                        + std::to_string(packedSamplesCount)
-                        + " samples into " 
-                        + std::to_string(nRecordsPacked)
-                        + " records");
+            if (logger)
+            {
+                SPDLOG_LOGGER_DEBUG(logger, "Packed {} samples into {} records",
+                                    packedSamplesCount,
+                                    nRecordsPacked);
+            }
         }
         else
         {
-            spdlog::warn("Only packed "
-                       + std::to_string(packedSamplesCount)
-                       + " of " 
-                       + std::to_string(expectedNumberOfSamplesToPack)
-                       + " samples into "
-                       + std::to_string(nRecordsPacked)
-                       + " records");
+            if (logger)
+            {
+                SPDLOG_LOGGER_WARN(logger,
+                                 "Only packed {} of {} samples into {} records",
+                                 packedSamplesCount,
+                                 expectedNumberOfSamplesToPack,
+                                 nRecordsPacked);
+            }
         }
     }
     else
     {
-        spdlog::warn("No records packed");
+        if (logger){SPDLOG_LOGGER_WARN(logger, "No records packed");}
     }
 
     /*

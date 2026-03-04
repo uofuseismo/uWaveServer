@@ -21,7 +21,7 @@ TEST_CASE("uWaveServer::Packet", "[class]")
     std::string channel{"HHZ"};
     std::string locationCode{"01"};
     double startTime{101};
-    std::chrono::microseconds startTimeMuS{101*1000000};
+    //std::chrono::microseconds startTimeMuS{101*1000000};
     double samplingRate{100};
     UWaveServer::Packet packet;
     REQUIRE_NOTHROW(packet.setNetwork(network));
@@ -41,7 +41,7 @@ TEST_CASE("uWaveServer::Packet", "[class]")
     {
         std::vector<int> data{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         packet.setData(data);
-        REQUIRE(packet.size() == data.size());
+        REQUIRE(packet.size() == static_cast<int> (data.size()));
         auto endTime = startTime + (data.size() - 1)/samplingRate;
         auto iEndTime = static_cast<int64_t> (std::round(endTime*1.e6));
         REQUIRE(packet.getEndTime().count() == iEndTime);
@@ -56,7 +56,7 @@ TEST_CASE("uWaveServer::Packet", "[class]")
     {   
         std::vector<int64_t> data{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
         packet.setData(data);
-        REQUIRE(packet.size() == data.size());
+        REQUIRE(packet.size() == static_cast<int> (data.size()));
         auto endTime = startTime + (data.size() - 1)/samplingRate;
         auto iEndTime = static_cast<int64_t> (std::round(endTime*1.e6));
         REQUIRE(packet.getEndTime().count() == iEndTime);
@@ -86,7 +86,7 @@ TEST_CASE("uWaveServer::Packet", "[class]")
     {
         std::vector<double> data{-12, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6}; 
         packet.setData(data);
-        REQUIRE(packet.size() == data.size());
+        REQUIRE(packet.size() == static_cast<int> (data.size()));
         auto endTime = startTime + (data.size() - 1)/samplingRate;
         auto iEndTime = static_cast<int64_t> (std::round(endTime*1.e6));
         REQUIRE(packet.getEndTime().count() == iEndTime);

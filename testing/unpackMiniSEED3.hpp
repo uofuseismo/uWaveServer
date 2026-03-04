@@ -20,7 +20,7 @@ std::vector<UWaveServer::Packet>
     std::vector<UWaveServer::Packet> result;
     auto bufferLength = static_cast<uint64_t> (dataLength);
     uint64_t offset{0};
-    bool isFirst{true};
+    //bool isFirst{true};
     while (bufferLength - offset > MINRECLEN)
     {
         UWaveServer::Packet packet;
@@ -138,7 +138,7 @@ std::vector<UWaveServer::Packet>
 {
     auto copy = data;
     auto bufferLength = static_cast<uint64_t> (data.size());    
-    return ::unpackMiniSEED(copy.data(), bufferLength);
+    return ::unpackMiniSEED(copy.data(), bufferLength, verbose);
 }
 
 }
