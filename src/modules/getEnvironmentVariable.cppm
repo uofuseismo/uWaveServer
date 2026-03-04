@@ -1,10 +1,17 @@
-#ifndef GET_ENVIRONMENT_VARIABLE_HPP
-#define GET_ENVIRONMENT_VARIABLE_HPP
+module;
+
 #include <cstdlib>
+#include <cstring>
 #include <string>
-namespace
+#include <cstdint>
+
+export module GetEnvironmentVariable;
+
+namespace UWaveServer
 {
 
+export
+[[nodiscard]]
 std::string getEnvironmentVariable(const std::string &variable,
                                    const std::string &defaultValue)
 {
@@ -27,18 +34,22 @@ std::string getEnvironmentVariable(const std::string &variable,
     return result;
 }
 
+export
+[[nodiscard]]
 std::string getEnvironmentVariable(const std::string &variable)
 { 
-    return ::getEnvironmentVariable(variable, "");
+    return getEnvironmentVariable(variable, "");
 }
 
+export
+[[nodiscard]]
 uint16_t getIntegerEnvironmentVariable(const std::string &variable,
                                        uint16_t defaultValue)
 {
     uint16_t result{defaultValue};
     try 
     {
-        auto stringValue = ::getEnvironmentVariable(variable);
+        auto stringValue = getEnvironmentVariable(variable);
         if (!stringValue.empty())
         {
             result = std::stoi(stringValue.c_str());
@@ -52,4 +63,3 @@ uint16_t getIntegerEnvironmentVariable(const std::string &variable,
 
 
 }
-#endif

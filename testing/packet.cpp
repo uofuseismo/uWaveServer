@@ -71,7 +71,7 @@ TEST_CASE("uWaveServer::Packet", "[class]")
     {   
         std::vector<float> data{-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6};
         packet.setData(data);
-        REQUIRE(packet.size() == data.size());
+        REQUIRE(packet.size() == static_cast<int> (data.size()));
         auto endTime = startTime + (data.size() - 1)/samplingRate;
         auto iEndTime = static_cast<int64_t> (std::round(endTime*1.e6));
         REQUIRE(packet.getEndTime().count() == iEndTime);

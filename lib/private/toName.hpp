@@ -19,6 +19,7 @@ namespace
     return name;
 }
 
+[[maybe_unused]]
 [[nodiscard]] std::string toName(const std::string_view &network,
                                  const std::string_view &station,
                                  const std::string_view &channel,

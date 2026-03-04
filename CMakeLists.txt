@@ -190,8 +190,22 @@ target_include_directories(uwsDataLoader
 target_link_libraries(uwsDataLoader
                       PRIVATE libuWaveServer
                               opentelemetry-cpp::prometheus_exporter 
+                              opentelemetry-cpp::otlp_http_log_record_exporter
+                              opentelemetry-cpp::otlp_http_metric_exporter
                               spdlog::spdlog_header_only
                               Boost::program_options)
+target_sources(uwsDataLoader
+               PUBLIC FILE_SET
+                      CXX_MODULES
+                      BASE_DIRS
+                         src/modules
+                      FILES
+                         src/modules/otelOptions.cppm
+                         src/modules/programOptions.cppm
+                         src/modules/logger.cppm
+                         src/modules/otelSpdlogSink.cppm
+                         src/modules/getEnvironmentVariable.cppm)
+
 
 if (${Crow_FOUND})
    message("Will build web server")
@@ -203,10 +217,24 @@ if (${Crow_FOUND})
                          CXX_EXTENSIONS NO)
    target_link_libraries(uHTTPWaveServer
                          PRIVATE uWaveServer::libuWaveServer
+                                 opentelemetry-cpp::otlp_http_log_record_exporter
+                                 opentelemetry-cpp::otlp_http_metric_exporter
                                  Boost::program_options
                                  Crow::Crow
                                  spdlog::spdlog_header_only
                                  opentelemetry-cpp::prometheus_exporter)
+   target_sources(uHTTPWaveServer
+                  PUBLIC FILE_SET
+                      CXX_MODULES
+                      BASE_DIRS
+                         src/modules
+                      FILES
+                         #src/modules/programOptions.cppm
+                         src/modules/otelOptions.cppm
+                         src/modules/logger.cppm
+                         src/modules/otelSpdlogSink.cppm
+                         src/modules/getEnvironmentVariable.cppm)
+
    if (${ENABLE_SSL})
       target_link_libraries(uHTTPWaveServer PRIVATE OpenSSL::SSL OpenSSL::Crypto)
    endif()

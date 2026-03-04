@@ -26,6 +26,7 @@ jobs:
             fi
             #export CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/usr/local/grpc/lib/cmake/absl:/usr/local/grpc/lib/cmake/protobuf:/usr/local/grpc/lib/cmake/utf8_range
             cmake -B build \
+                  -G Ninja \
                   -DCMAKE_CXX_COMPILER=clang++ \
                   -DCMAKE_BUILD_TYPE=Release \
                   -DBUILD_SHARED_LIBS=OFF \
@@ -36,20 +37,18 @@ jobs:
       - run:
           name: "Build the code"
           command: |
-            cd build
+            cmake --build build
             # resource class small has 1 vcpu and medium has 2
-            make -j 1
+            #make -j 1
       - run:
           name: "Install the code"
           command: |
-            cd build
-            make install
+            cmake --install build
       - run:
            name: "Test the code"
            command: |
-            cd build
             export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/uWaveServer/lib:/usr/local/lib
-            ctest --verbose
+            ctest --test-dir build --verbose
       - run:
            name: "Package code"
            command: |

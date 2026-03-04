@@ -15,11 +15,13 @@
 #include "uWaveServer/packet.hpp"
 #include "lib/private/toMiniSEED.hpp"
 #include "lib/private/toJSON.hpp"
-#include "getEnvironmentVariable.hpp"
+//#include "getEnvironmentVariable.hpp"
 #include "metricsExporter.hpp"
 #include "serverMetrics.hpp"
 
 #define APPLICATION_NAME "uHTTPWaveServer"
+
+import GetEnvironmentVariable;
 
 namespace 
 {
@@ -33,22 +35,22 @@ struct ProgramOptions
     std::string crowBindAddress{"127.0.0.1"};
 
     std::string databaseUser{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_USER")
+        UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_USER")
     };
     std::string databasePassword{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")
+        UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_ONLY_PASSWORD")
     };  
     std::string databaseName{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")
+        UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")
     };  
     std::string databaseHost{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")
+        UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")
     };  
     std::string databaseSchema{
-        ::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "") 
+        UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "") 
     };  
     uint16_t databasePort{
-        ::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)
+        UWaveServer::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)
     };
     std::set<std::string> databaseSchemas;
 
@@ -229,7 +231,7 @@ crow::json::wvalue documentAPI()
     result["info"] = { {"title", "dataselect"}, {"version", "0.0.1"} };
     crow::json::wvalue streamQueryPath;
     crow::json::wvalue streamQueryPathDescription;
-    streamQueryPathDescription["get"] = std::move(documentStreamQuery());
+    streamQueryPathDescription["get"] = documentStreamQuery(); // Copy elision
   
     streamQueryPath["stream-query?net={network}&sta={station}&cha={channel}&loc={location}&start={startTime]&end={endTime}&nodata={noData}&format={format}"] = std::move(streamQueryPathDescription);
 
@@ -645,7 +647,6 @@ int main(int argc, char *argv[])
                 response.body = "No data found";
                 return response;
             }
-            constexpr int recordLength{512}; 
             if (format == "json")
             {
                 mObservableSuccessResponses.add_or_assign("stream-query", 1);

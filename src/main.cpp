@@ -22,10 +22,15 @@
 #include "uWaveServer/database/writeClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
-#include "getEnvironmentVariable.hpp"
+//#include "getEnvironmentVariable.hpp"
 #include "writerMetrics.hpp"
 
 #define APPLICATION_NAME "uwsDataLoader"
+
+import ProgramOptions;
+import Logger;
+import OTelOptions;
+import GetEnvironmentVariable;
 
 [[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
 void setVerbosityForSPDLOG(const int verbosity);
@@ -47,32 +52,36 @@ std::string toName(const UWaveServer::Packet &packet)
     return name;
 }
 
+/*
 struct ProgramOptions
 {
     UWaveServer::PacketSanitizerOptions mPacketSanitizerOptions;
     std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
     std::string applicationName{APPLICATION_NAME};
     std::string prometheusURL{"localhost:9020"};
-    std::string databaseUser{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
-    std::string databasePassword{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
-    std::string databaseName{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};
-    std::string databaseHost{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")};
-    std::string databaseSchema{::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "")};
-    int databasePort{::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
+    std::string databaseUser{UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
+    std::string databasePassword{UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
+    std::string databaseName{UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};
+    std::string databaseHost{UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_HOST", "localhost")};
+    std::string databaseSchema{UWaveServer::getEnvironmentVariable("UWAVE_SERVER_DATABASE_SCHEMA", "")};
+    int databasePort{UWaveServer::getIntegerEnvironmentVariable("UWAVE_SERVER_DATABASE_PORT", 5432)};
     int mQueueCapacity{8092}; // Want this big enough but not too big
     int nDatabaseWriterThreads{1}; 
     int verbosity{3};
 };
+*/
 
-ProgramOptions parseIniFile(const std::string &iniFile);
+UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile);
 
 class Process
 {
 public:
     Process() = delete;
     /// Constructor
-    explicit Process(const ProgramOptions &options) :
-        mProgramOptions(options)
+    Process(const UWaveServer::ProgramOptions &options,
+            std::shared_ptr<spdlog::logger> logger) :
+        mProgramOptions(options),
+        mLogger(logger)
     //        std::unique_ptr<UWaveServer::Database::Client> &&databaseClient)
     {
         nDatabaseWriterThreads = options.nDatabaseWriterThreads;
@@ -82,7 +91,8 @@ public:
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
 
         // Create the database connection
-        spdlog::debug("Creating TimeSeriesDB PostgreSQL database connection...");
+        SPDLOG_LOGGER_DEBUG(mLogger,
+            "Creating TimeSeriesDB PostgreSQL database connection...");
         for (int iThread = 0; iThread < nDatabaseWriterThreads; ++iThread)
         {
             UWaveServer::Database::Credentials databaseCredentials;
@@ -96,8 +106,9 @@ public:
                + "-" + std::to_string(iThread));
             if (!options.databaseSchema.empty())
             {
-                spdlog::info("Will connect to schema "
-                           + options.databaseSchema);
+                SPDLOG_LOGGER_INFO(mLogger,
+                                   "Will connect to schema {}",
+                                   options.databaseSchema);
                 databaseCredentials.setSchema(options.databaseSchema);
             }
             auto databaseClient 
@@ -107,7 +118,7 @@ public:
         }
 
         // Create data clients
-        spdlog::debug("Creating SEEDLink clients...");
+        SPDLOG_LOGGER_DEBUG(mLogger, "Creating SEEDLink clients...");
         for (const auto &seedLinkOptions : options.seedLinkOptions)
         {
             std::unique_ptr<UWaveServer::DataClient::IDataClient> client
@@ -130,40 +141,42 @@ public:
     {
         if (!packet.hasNetwork())
         {
-            spdlog::warn("Network not set on packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger, "Network not set on packet - skipping");
             return;
         }
         if (!packet.hasStation())
         {
-            spdlog::warn("Station not set on packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger, "Station not set on packet - skipping");
             return;
         }
         if (!packet.hasChannel())
         {
-            spdlog::warn("Channel not set on packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger, "Channel not set on packet - skipping");
             return;
         }
         if (!packet.hasLocationCode())
         {
-            spdlog::warn("Location code not set on packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger,
+                               "Location code not set on packet - skipping");
             return;
         }
         if (!packet.hasSamplingRate())
         {
             auto name = ::toName(packet);
-            spdlog::warn("Sampling rate not set on " + name 
-                       + "'s packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger,
+                             "Sampling rate not set on {}'s packet - skipping",
+                             name);
             return;
         }
         if (packet.empty())
         {
             auto name = ::toName(packet);
-            spdlog::warn("No data on " + name + "'s packet - skipping");
+            SPDLOG_LOGGER_WARN(mLogger, "No data on {}'s packet - skipping",
+                               name);
             return;
         }
         mObservableReceivedPacketsCounter.fetch_add(
             1, std::memory_order_relaxed);
-        //spdlog::debug("Adding " + ::toName(packet));
         mShallowPacketSanitizerQueue.push(std::move(packet));
     }
     // Data acquisitions likely will have similar latencies.  So the first
@@ -171,7 +184,7 @@ public:
     // packet.
     void shallowDeduplicator()
     {
-        spdlog::info("Thread entering shallow packet sanitizer");
+        SPDLOG_LOGGER_INFO(mLogger, "Thread entering shallow packet sanitizer");
         const std::chrono::milliseconds mTimeOut{10};
         while (keepRunning())
         {
@@ -197,8 +210,9 @@ public:
                 }
                 catch (const std::exception &e)
                 {
-                    spdlog::warn("Failed to check future packet data because " 
-                               + std::string {e.what()} + "; skipping");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                           "Failed to check future packet data because {} - skipping", 
+                           std::string {e.what()});
                     allow = false;
                 } 
                 // Handle expired data
@@ -216,8 +230,9 @@ public:
                 }
                 catch (const std::exception &e)
                 {
-                    spdlog::warn("Failed to check expired packet data because "
-                               + std::string {e.what()} + "; skipping");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                    "Failed to check expired packet data because {} - skipping",
+                    std::string {e.what()});
                     allow = false;
                 }
                 // Handle duplicate data
@@ -245,8 +260,9 @@ public:
                 }
                 catch (const std::exception &e)
                 {
-                    spdlog::warn("Failed to test for duplicate packet because "
-                               + std::string {e.what()} + "; skipping");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                    "Failed to test for duplicate packet because {} - skipping",
+                        std::string {e.what()});
                     allow = false;
                 }
                 if (allow)
@@ -255,14 +271,14 @@ public:
                 }
             }
         }
-        spdlog::info("Thread leaving shallow packet sanitizer");
+        SPDLOG_LOGGER_INFO(mLogger, "Thread leaving shallow packet sanitizer");
     }
 /*
     /// Next, we perform a deeper deduplication process.  This helps to
     /// remove fairly latent data.
     void deepDeduplicator()
     {
-        spdlog::info("Thread entering deep deduplicator");
+        SPDLOG_LOGGER_INFO(mLogger, "Thread entering deep deduplicator");
         const std::chrono::milliseconds mTimeOut{10}; 
         while (keepRunning())
         {
@@ -274,15 +290,15 @@ public:
             {
             }
         }
-        spdlog::debug("Thread leaving deep deduplicator");
+        SPDLOG_LOGGER_DEBUG(mLogger, "Thread leaving deep deduplicator");
     }
 */
     /// Finally, we write this to the database.  This is where the real compute
     /// work happens (on postgres's end).
     void writePacketToDatabase(int iThread)
     {
-        spdlog::info("Thread " + std::to_string(iThread)
-                   + " entering database writer");
+        SPDLOG_LOGGER_INFO(mLogger, "Thread {} entering database writer",
+                           std::to_string(iThread));
         // We'll keep this pretty coarse - we could write stats for each
         // table but that is getting into the realm of telemetry metrics
         auto databaseKey = mProgramOptions.databaseName;
@@ -363,13 +379,14 @@ public:
                 }
                 catch (const std::exception &e)
                 {
-                    spdlog::warn("Failed to add packet to database because "
-                               + std::string {e.what()});
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                   "Failed to add packet to database because {}",
+                                   std::string {e.what()});
                     mObservablePacketsNotWritten.add_or_assign(databaseKey, 1);
                     consecutiveFailureCounter = consecutiveFailureCounter + 1;
                     if (consecutiveFailureCounter == 100)
                     {
-                        spdlog::critical(
+                        SPDLOG_LOGGER_CRITICAL(mLogger,
                            "Too many consecutive db write failures");
                         throw std::runtime_error(
                            "Too many consecutive failures writing packets");
@@ -388,24 +405,28 @@ public:
             // Is the packet valid?
             if (!packet.hasNetwork())
             {
-                spdlog::warn("Network code not set on packet; skipping");
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Network code not set on packet - skipping");
                 continue;
             }
             if (!packet.hasStation())
             {
-                spdlog::warn("Station name not set on packet; skipping");
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Station name not set on packet - skipping");
                 continue;
             }
             if (!packet.hasChannel())
             {
-                spdlog::warn("Channel code not set on packet; skipping");
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Channel code not set on packet - skipping");
                 continue;
             }
             // Location code we can fake
             if (!packet.hasLocationCode()){packet.setLocationCode("--");}
             if (!packet.hasSamplingRate())
             {
-                spdlog::warn("Sampling rate not set on packet; skipping");
+                SPDLOG_LOGGER_WARN(mLogger,
+                                  "Sampling rate not set on packet - skipping");
                 continue;
             }
             // Add packet to shallow deduplicator
@@ -415,9 +436,9 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn(
-                    "Failed to add packet to initial packet queue because "
-                  + std::string {e.what()});
+                SPDLOG_LOGGER_WARN(mLogger,
+                    "Failed to add packet to initial packet queue because {}",
+                    std::string {e.what()});
             }
         }
     }
@@ -441,20 +462,21 @@ public:
     /// Place for the main thread to sleep until someone wakes it up.
     void handleMainThread()
     {
-        spdlog::debug("Main thread entering waiting loop");
+        SPDLOG_LOGGER_DEBUG(mLogger, "Main thread entering waiting loop");
         catchSignals();
         {
             while (!mStopRequested)
             {
                 if (mInterrupted)
                 {
-                    spdlog::info("SIGINT/SIGTERM signal received!");
+                    SPDLOG_LOGGER_INFO(mLogger,
+                                       "SIGINT/SIGTERM signal received!");
                     mStopRequested = true;
                     break;
                 }
                 if (!checkFuturesOkay(std::chrono::milliseconds {5}))
                 {
-                    spdlog::critical(
+                    SPDLOG_LOGGER_CRITICAL(mLogger,
                        "Futures exception caught; terminating app");
                     mStopRequested = true;
                     break;
@@ -464,7 +486,8 @@ public:
         }
         if (mStopRequested)
         {
-            spdlog::debug("Stop request received.  Terminating...");
+            SPDLOG_LOGGER_DEBUG(mLogger,
+                                "Stop request received.  Terminating...");
             stop();
         }
     }
@@ -491,7 +514,7 @@ public:
         mDataAcquisitionFutures.clear();
         for (auto &dataAcquisitionClient : mDataAcquisitionClients)
         {
-            spdlog::info("Starting client");
+            SPDLOG_LOGGER_INFO(mLogger, "Starting client");
             mDataAcquisitionFutures.push_back(
                 dataAcquisitionClient->start());
         }
@@ -578,8 +601,9 @@ public:
             }
             catch (const std::exception &e) 
             {
-                spdlog::critical("Fatal error in SEEDLink import: "
-                               + std::string {e.what()});
+                SPDLOG_LOGGER_CRITICAL(mLogger,
+                                       "Fatal error in SEEDLink import: {}",
+                                       std::string {e.what()});
                 isOkay = false;
             }
         }
@@ -612,8 +636,9 @@ public:
         // have data older than a few weeks
         std::chrono::days {60},
         std::chrono::hours {1}};
+    UWaveServer::ProgramOptions mProgramOptions;
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     mutable std::mutex mStopContext;
-    ::ProgramOptions mProgramOptions;
     std::condition_variable mStopCondition;
     std::vector<std::future<void>> mDataAcquisitionFutures;
     std::vector<std::thread> mDatabaseWriterThreads;
@@ -642,7 +667,7 @@ int main(int argc, char *argv[])
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
-    ::ProgramOptions programOptions;
+    UWaveServer::ProgramOptions programOptions;
     try
     {
         programOptions = ::parseIniFile(iniFile);
@@ -652,19 +677,25 @@ int main(int argc, char *argv[])
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
-    ::setVerbosityForSPDLOG(programOptions.verbosity);
+
+    auto logger
+        = UWaveServer::Logger::initialize(programOptions.verbosity,
+                                          programOptions.exportLogs,
+                                          programOptions.otelHTTPLogOptions);
 
     // Create the data source connections
-    spdlog::info("Initializing processes...");
-    std::unique_ptr<::Process> process; 
+    SPDLOG_LOGGER_INFO(logger, "Initializing processes...");
+    std::unique_ptr<::Process> process{nullptr};
     try
     {
-        process = std::make_unique<::Process> (programOptions);
+        process = std::make_unique<::Process> (programOptions, logger);
     }
     catch (const std::exception &e)
     {
-        spdlog::error("Failed to initialize worker class; failed with "
-                    + std::string{e.what()});
+        SPDLOG_LOGGER_CRITICAL(logger,
+            "Failed to initialize worker class; failed with {}",
+            std::string{e.what()});
+        UWaveServer::Logger::cleanup();
         return EXIT_FAILURE;
     }
 
@@ -675,8 +706,9 @@ int main(int argc, char *argv[])
     }
     catch (const std::exception &e) 
     {
-        spdlog::critical("Failed to initalize metrics with "
-                       + std::string {e.what()});
+        SPDLOG_LOGGER_CRITICAL(logger, "Failed to initalize metrics with {}",
+                               std::string {e.what()});
+        UWaveServer::Logger::cleanup();
         return EXIT_FAILURE;
     }
 
@@ -686,11 +718,14 @@ int main(int argc, char *argv[])
         process->handleMainThread();
         //process->stop();
         cleanupMetrics();
+        UWaveServer::Logger::cleanup();
     }
     catch (const std::exception &e)
     {
-       spdlog::critical("An error occurred during processing");
+       SPDLOG_LOGGER_CRITICAL(logger, "An error occurred during processing {}",
+                              std::string {e.what()});
        cleanupMetrics();
+       UWaveServer::Logger::cleanup();
        return EXIT_FAILURE;
     }
 
@@ -835,9 +870,9 @@ getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
     return clientOptions;
 }
 
-ProgramOptions parseIniFile(const std::string &iniFile)
+UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
 {   
-    ProgramOptions options;
+    UWaveServer::ProgramOptions options;
     if (!std::filesystem::exists(iniFile)){return options;}
     // Parse the initialization file
     boost::property_tree::ptree propertyTree;

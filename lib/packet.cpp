@@ -85,7 +85,7 @@ std::string toMiniSEED(const std::vector<Packet> &packets,
             // Microseconds to nanoseconds
             msRecord->starttime
                 = static_cast<int64_t> (packet.getStartTime().count()*1.e3);
-            auto endTime = static_cast<int64_t> (packet.getEndTime().count()*1.e-3);
+            //auto endTime = static_cast<int64_t> (packet.getEndTime().count()*1.e-3);
             msRecord->samprate = packet.getSamplingRate();
             msRecord->numsamples = packet.size();
             if (packet.getDataType() == Packet::DataType::Integer32)
