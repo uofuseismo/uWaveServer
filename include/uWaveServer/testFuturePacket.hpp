@@ -3,9 +3,10 @@
 #include <chrono>
 #include <string>
 #include <memory>
+#include <spdlog/spdlog.h>
 namespace UWaveServer
 {
-class Packet;
+  class Packet;
 }
 namespace UWaveServer
 {

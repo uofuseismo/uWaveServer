@@ -9,6 +9,9 @@
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <opentelemetry/metrics/meter_provider.h>
+#include <opentelemetry/metrics/provider.h>
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/packetSanitizer.hpp"
 #include "uWaveServer/packetSanitizerOptions.hpp"
@@ -23,21 +26,31 @@
 #include "uWaveServer/database/credentials.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 //#include "getEnvironmentVariable.hpp"
-#include "writerMetrics.hpp"
+//#include "writerMetrics.hpp"
 
 #define APPLICATION_NAME "uwsDataLoader"
 
 import ProgramOptions;
+import WriterMetrics;
 import Logger;
 import OTelOptions;
 import GetEnvironmentVariable;
 
 [[nodiscard]] std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[]);
-void setVerbosityForSPDLOG(const int verbosity);
+//void setVerbosityForSPDLOG(const int verbosity);
+
 
 namespace
 {       
 std::atomic_bool mInterrupted{false};
+
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    totalPacketsReceivedCounter;
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    totalPacketsWrittenCounter;
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    totalPacketsRejectedCounter;
+
 }
 
 std::string toName(const UWaveServer::Packet &packet)
@@ -126,6 +139,42 @@ public:
                     (mAddPacketsFromAcquisitionCallback, seedLinkOptions);
             mDataAcquisitionClients.push_back(std::move(client));
         } 
+        SPDLOG_LOGGER_DEBUG(mLogger, "Creating gRPC clients...");
+
+        // Initialize metrics
+        if (mProgramOptions.exportMetrics)
+        {
+            // Need a provider from which to get a meter.  This is initialized
+            // once and should last the duration of the application.
+            auto provider 
+                = opentelemetry::metrics::Provider::GetMeterProvider();
+    
+            // Meter will be bound to application (library, module, class, etc.)
+            // so as to identify who is genreating these metrics.
+            auto meter
+                = provider->GetMeter(mProgramOptions.applicationName, "1.2.0");
+
+            namespace UMetrics = UWaveServer::Metrics;
+            // Packets received from import
+            totalPacketsReceivedCounter
+                = meter->CreateInt64ObservableCounter(
+                    "seismic_data.storage.client.packets.received",
+                    "Number of packets received from acquisition.",
+                    "{packets}");
+            totalPacketsReceivedCounter->AddCallback(
+                UMetrics::observeNumberOfPacketsReceived,
+                nullptr);
+
+            totalPacketsReceivedCounter
+                = meter->CreateInt64ObservableCounter(
+                    "seismic_data.storage.client.packets.written",
+                    "Number of packets written to database.",
+                    "{packets}");
+            totalPacketsReceivedCounter->AddCallback(
+                UMetrics::observeNumberOfPacketsWritten,
+                nullptr);
+
+        }
 
         mInitialized = true;
     }
@@ -175,8 +224,8 @@ public:
                                name);
             return;
         }
-        mObservableReceivedPacketsCounter.fetch_add(
-            1, std::memory_order_relaxed);
+        //mObservableReceivedPacketsCounter.fetch_add(
+        //    1, std::memory_order_relaxed);
         mShallowPacketSanitizerQueue.push(std::move(packet));
     }
     // Data acquisitions likely will have similar latencies.  So the first
@@ -185,6 +234,8 @@ public:
     void shallowDeduplicator()
     {
         SPDLOG_LOGGER_INFO(mLogger, "Thread entering shallow packet sanitizer");
+        auto &metrics
+            = UWaveServer::Metrics::MetricsSingleton::getInstance();
         const std::chrono::milliseconds mTimeOut{10};
         while (keepRunning())
         {
@@ -194,6 +245,7 @@ public:
                      &packet, mTimeOut);
             if (gotPacket)
             {
+                metrics.incrementReceivedPacketsCounter();
                 bool allow{true};
                 // Handle future data
                 try
@@ -203,8 +255,9 @@ public:
                         allow = mTestFuturePacket.allow(packet);
                         if (!allow)
                         {
-                            mObservableRejectedPacketsCounter.add_or_assign(
-                                "future", 1);
+                            metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Future);
+                            //mObservableRejectedPacketsCounter.add_or_assign(
+                            //    "future", 1);
                         }
                     }
                 }
@@ -223,8 +276,9 @@ public:
                         allow = mTestExpiredPacket.allow(packet);
                         if (!allow)
                         {
-                            mObservableRejectedPacketsCounter.add_or_assign(
-                               "expired", 1);
+                            metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Expired);
+                            //mObservableRejectedPacketsCounter.add_or_assign(
+                            //   "expired", 1);
                         }
                     }
                 }
@@ -244,8 +298,9 @@ public:
                         allow = mTestShallowDuplicatePacket.allow(packet);
                         if (!allow)
                         {
-                            mObservableRejectedPacketsCounter.add_or_assign(
-                                "duplicate", 1); 
+                            metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Duplicate);
+                            //mObservableRejectedPacketsCounter.add_or_assign(
+                            //    "duplicate", 1); 
                         }   
                     }
                     if (allow)
@@ -253,8 +308,9 @@ public:
                         allow = mTestDeepDuplicatePacket.allow(packet);
                         if (!allow)
                         {
-                            mObservableRejectedPacketsCounter.add_or_assign(
-                                "duplicate", 1);
+                            metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Duplicate);
+                            //mObservableRejectedPacketsCounter.add_or_assign(
+                            //    "duplicate", 1);
                         }
                     }
                 }
@@ -306,8 +362,10 @@ public:
         {
             databaseKey = databaseKey + "." + mProgramOptions.databaseSchema;
         }
-        mObservablePacketsWritten.add_or_assign(databaseKey, 0);
-        mObservablePacketsNotWritten.add_or_assign(databaseKey, 0);
+        //mObservablePacketsWritten.add_or_assign(databaseKey, 0);
+        //mObservablePacketsNotWritten.add_or_assign(databaseKey, 0);
+        auto &metrics
+            = UWaveServer::Metrics::MetricsSingleton::getInstance();
         std::map<std::string, std::string> histogramKey{ {"database", databaseKey} };
         auto otelContext = opentelemetry::context::Context {};
 
@@ -340,13 +398,16 @@ public:
                     double duration
                         = std::chrono::duration_cast<std::chrono::microseconds>
                           (t2 - t1).count()*1.e-6;
-                    mObservablePacketsWritten.add_or_assign(databaseKey, 1);
+                    //mObservablePacketsWritten.add_or_assign(databaseKey, 1);
+                    metrics.incrementWrittenPacketsCounter();
+/*
                     if (mWriteHistogram)
                     {
                         mWriteHistogram->Record(duration,
                                                 histogramKey,
                                                 otelContext);
                     }
+*/
                     averageTime = averageTime + duration;
                     cumulativeTime = cumulativeTime + duration;
                     nRowsWritten = nRowsWritten + 1; //packet.size();
@@ -382,7 +443,8 @@ public:
                     SPDLOG_LOGGER_WARN(mLogger,
                                    "Failed to add packet to database because {}",
                                    std::string {e.what()});
-                    mObservablePacketsNotWritten.add_or_assign(databaseKey, 1);
+                    //mObservablePacketsNotWritten.add_or_assign(databaseKey, 1);
+                    metrics.incrementNotWrittenPacketsCounter();
                     consecutiveFailureCounter = consecutiveFailureCounter + 1;
                     if (consecutiveFailureCounter == 100)
                     {
@@ -683,6 +745,24 @@ int main(int argc, char *argv[])
                                           programOptions.exportLogs,
                                           programOptions.otelHTTPLogOptions);
 
+    // Initialize metrics
+    UWaveServer::Metrics::initializeMetricsSingleton();
+    try
+    {
+        UWaveServer::Metrics::initialize(programOptions.exportMetrics,
+                                         programOptions.otelHTTPMetricsOptions);
+        //::initializeMetrics(programOptions.prometheusURL);
+        //::initializeWriterMetrics(programOptions.applicationName);
+    }    
+    catch (const std::exception &e)  
+    {    
+        SPDLOG_LOGGER_CRITICAL(logger, "Failed to initalize metrics with {}",
+                               std::string {e.what()});
+        UWaveServer::Logger::cleanup();
+        return EXIT_FAILURE;
+    }    
+
+
     // Create the data source connections
     SPDLOG_LOGGER_INFO(logger, "Initializing processes...");
     std::unique_ptr<::Process> process{nullptr};
@@ -695,19 +775,7 @@ int main(int argc, char *argv[])
         SPDLOG_LOGGER_CRITICAL(logger,
             "Failed to initialize worker class; failed with {}",
             std::string{e.what()});
-        UWaveServer::Logger::cleanup();
-        return EXIT_FAILURE;
-    }
-
-    try
-    {
-        ::initializeMetrics(programOptions.prometheusURL);
-        ::initializeWriterMetrics(programOptions.applicationName);
-    }
-    catch (const std::exception &e) 
-    {
-        SPDLOG_LOGGER_CRITICAL(logger, "Failed to initalize metrics with {}",
-                               std::string {e.what()});
+        UWaveServer::Metrics::cleanup();
         UWaveServer::Logger::cleanup();
         return EXIT_FAILURE;
     }
@@ -717,14 +785,14 @@ int main(int argc, char *argv[])
         process->start();
         process->handleMainThread();
         //process->stop();
-        cleanupMetrics();
+        UWaveServer::Metrics::cleanup();
         UWaveServer::Logger::cleanup();
     }
     catch (const std::exception &e)
     {
        SPDLOG_LOGGER_CRITICAL(logger, "An error occurred during processing {}",
                               std::string {e.what()});
-       cleanupMetrics();
+       UWaveServer::Metrics::cleanup();
        UWaveServer::Logger::cleanup();
        return EXIT_FAILURE;
     }
@@ -775,6 +843,7 @@ Allowed options)""");
     return {iniFile, false};
 }
 
+/*
 void setVerbosityForSPDLOG(const int verbosity)
 {
     if (verbosity <= 1)
@@ -785,6 +854,7 @@ void setVerbosityForSPDLOG(const int verbosity)
     if (verbosity == 3){spdlog::set_level(spdlog::level::info);}
     if (verbosity >= 4){spdlog::set_level(spdlog::level::debug);}
 }   
+*/
 
 [[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions
 getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,

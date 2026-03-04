@@ -4,6 +4,7 @@
 #include <mutex>
 #include <set>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/testExpiredPacket.hpp"
 #include "uWaveServer/packet.hpp"
 #include "private/toName.hpp"

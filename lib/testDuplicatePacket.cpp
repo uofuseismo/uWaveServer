@@ -10,6 +10,7 @@
 #endif
 #include <boost/circular_buffer.hpp>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/testDuplicatePacket.hpp"
 #include "uWaveServer/packet.hpp"
 

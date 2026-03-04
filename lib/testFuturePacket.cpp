@@ -4,6 +4,7 @@
 #include <mutex>
 #include <set>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/testFuturePacket.hpp"
 #include "uWaveServer/packet.hpp"
 #include "private/toName.hpp"
@@ -47,19 +48,26 @@ public:
         *this = impl;
     }
     TestFuturePacketImpl(const std::chrono::microseconds &maxFutureTime,
-                         const std::chrono::seconds &logBadDataInterval) :
+                         const std::chrono::seconds &logBadDataInterval,
+                         std::shared_ptr<spdlog::logger> logger) :
         mMaxFutureTime(maxFutureTime),
-        mLogBadDataInterval(logBadDataInterval)
+        mLogBadDataInterval(logBadDataInterval),
+        mLogger(logger)
     {
         // This might be okay if you really want to account for telemetry
         // lags.  But that's a dangerous game so I'll let the user know.
         if (mMaxFutureTime.count() < 0)
         {
-            spdlog::warn("Max future time is negative");
+            SPDLOG_LOGGER_WARN(mLogger, "Max future time is negative");
         }
         if (mLogBadDataInterval.count() >= 0)
         {
             mLogBadData = true;
+            if (mLogger == nullptr)
+            {
+                mLogger
+                    = spdlog::stdout_color_mt("future-packet-tester-console");
+            }
         }
         else
         {
@@ -79,7 +87,10 @@ public:
         }
         catch (...)
         {
-            spdlog::warn("Could not extract name of packet");
+            if (mLogger)
+            {
+                SPDLOG_LOGGER_WARN(mLogger, "Could not extract name of packet");
+            }
         }
         auto nowSeconds
             = std::chrono::duration_cast<std::chrono::seconds> (nowMuSec);
@@ -94,7 +105,10 @@ public:
         }
         catch (...)
         {
-            spdlog::warn("Failed to add " + name + " to set");
+            if (mLogger)
+            {
+                SPDLOG_LOGGER_WARN(mLogger, "Failed to add {} to set", name);
+            }
         }
         if (nowSeconds >= mLastLogTime + mLogBadDataInterval)
         {
@@ -105,7 +119,7 @@ public:
                 {
                     message = message + " " + channel;
                 }
-                spdlog::info(message);
+                if (mLogger){SPDLOG_LOGGER_INFO(mLogger, "{}", message);}
                 mFutureChannels.clear();
                 mLastLogTime = nowSeconds;
             }
@@ -131,13 +145,15 @@ public:
     std::chrono::microseconds mMaxFutureTime{0};
     std::chrono::seconds mLastLogTime{0};
     std::chrono::seconds mLogBadDataInterval{3600};
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     bool mLogBadData{true};
 };
 
 /// Constructor
 TestFuturePacket::TestFuturePacket() :
     pImpl(std::make_unique<TestFuturePacketImpl> (std::chrono::microseconds {0},
-                                                  std::chrono::seconds {3600}))
+                                                  std::chrono::seconds {3600},
+                                                  nullptr))
 {
 }
 
@@ -146,7 +162,8 @@ TestFuturePacket::TestFuturePacket(
     const std::chrono::microseconds &maxFutureTime,
     const std::chrono::seconds &logBadDataInterval) :
     pImpl(std::make_unique<TestFuturePacketImpl> (maxFutureTime,
-                                                  logBadDataInterval))
+                                                  logBadDataInterval,
+                                                  nullptr))
 {
 }
 
@@ -206,8 +223,11 @@ bool TestFuturePacket::allow(const Packet &packet) const
     }
     catch (const std::exception &e)
     {
-        spdlog::warn("Error detect in logBadData: "
-                   + std::string {e.what()});
+        if (pImpl->mLogger)
+        {
+            SPDLOG_LOGGER_WARN(pImpl->mLogger, "Error detect in logBadData: {}",
+                               std::string {e.what()});
+        }
     }
     return allow;
 }

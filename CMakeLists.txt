@@ -37,6 +37,7 @@ find_package(SEEDLink REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+find_package(TBB REQUIRED)
 find_package(opentelemetry-cpp REQUIRED)
 if (${BUILD_TESTS})
    find_package(Catch2 3 REQUIRED)
@@ -204,7 +205,8 @@ target_sources(uwsDataLoader
                          src/modules/programOptions.cppm
                          src/modules/logger.cppm
                          src/modules/otelSpdlogSink.cppm
-                         src/modules/getEnvironmentVariable.cppm)
+                         src/modules/getEnvironmentVariable.cppm
+                         src/modules/writerMetrics.cppm)
 
 
 if (${Crow_FOUND})

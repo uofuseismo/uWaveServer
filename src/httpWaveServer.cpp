@@ -248,7 +248,7 @@ class CustomLogger : public crow::ILogHandler
 {
 public:
     CustomLogger() :
-        logger(spdlog::stdout_color_st("console"))
+        logger(spdlog::stdout_color_mt("console"))
     {
     }
     void log(const std::string &message, 
