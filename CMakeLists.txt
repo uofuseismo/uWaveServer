@@ -190,7 +190,6 @@ target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
                       PRIVATE libuWaveServer
-                              opentelemetry-cpp::prometheus_exporter 
                               opentelemetry-cpp::otlp_http_log_record_exporter
                               opentelemetry-cpp::otlp_http_metric_exporter
                               spdlog::spdlog_header_only
@@ -224,7 +223,6 @@ if (${Crow_FOUND})
                                  Boost::program_options
                                  Crow::Crow
                                  spdlog::spdlog_header_only
-                                 #opentelemetry-cpp::prometheus_exporter
                                  )
    target_sources(uHTTPWaveServer
                   PUBLIC FILE_SET
