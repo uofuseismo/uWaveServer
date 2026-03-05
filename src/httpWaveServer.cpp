@@ -10,6 +10,8 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string.hpp>
+#include <opentelemetry/metrics/meter_provider.h>
+#include <opentelemetry/metrics/provider.h>
 #include <crow.h>
 #include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
@@ -17,21 +19,36 @@
 #include "lib/private/toMiniSEED.hpp"
 #include "lib/private/toJSON.hpp"
 //#include "getEnvironmentVariable.hpp"
-#include "metricsExporter.hpp"
-#include "serverMetrics.hpp"
+//#include "metricsExporter.hpp"
+//#include "serverMetrics.hpp"
 
 #define APPLICATION_NAME "uHTTPWaveServer"
 
 import GetEnvironmentVariable;
 import Logger;
+import HTTPServerMetrics;
+import OTelOptions;
 
 namespace 
 {
 
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    successResponseCounter;
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    serverErrorResponseCounter;
+opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
+    clientErrorResponseCounter;
+opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>
+    writeHistogram{nullptr};
+
+
 struct ProgramOptions
 {
     std::string applicationName{APPLICATION_NAME};
-    std::string prometheusURL{"localhost:9020"}; 
+    //std::string prometheusURL{"localhost:9020"}; 
+
+    UWaveServer::OTelHTTPMetricsOptions otelHTTPMetricsOptions;
+    UWaveServer::OTelHTTPLogOptions otelHTTPLogOptions;
 
     std::string crowServerName{"localhost"};
     std::string crowBindAddress{"127.0.0.1"};
@@ -59,10 +76,12 @@ struct ProgramOptions
     int verbosity{3};
     uint16_t crowPort{8000}; 
     uint16_t nThreads{2}; // Min is 2 for crow
+    bool exportLogs{false};
+    bool exportMetrics{false};
 };
 
 std::pair<std::string, bool> parseCommandLineOptions(int, char *[]);
-void setVerbosityForSPDLOG(const int );
+//void setVerbosityForSPDLOG(const int );
 ProgramOptions parseIniFile(const std::filesystem::path &);
 
 }
@@ -247,9 +266,27 @@ crow::json::wvalue documentAPI()
 class CustomLogger : public crow::ILogHandler
 {
 public:
-    CustomLogger() :
-        logger(spdlog::stdout_color_mt("console"))
+    CustomLogger()
     {
+        UWaveServer::OTelHTTPLogOptions otelHTTPLogOptions;
+        const int verbosity{3};
+        constexpr bool exportLogs{false};
+        logger
+           = UWaveServer::Logger::initialize(verbosity, 
+                                             exportLogs,
+                                             otelHTTPLogOptions);
+    }
+    CustomLogger(::ProgramOptions &options) 
+    {
+        logger
+           = UWaveServer::Logger::initialize(
+                options.verbosity,
+                options.exportLogs,
+                options.otelHTTPLogOptions);
+    }
+    ~CustomLogger()
+    {
+        UWaveServer::Logger::cleanup();
     }
     void log(const std::string &message, 
              crow::LogLevel level)
@@ -311,22 +348,30 @@ int main(int argc, char *argv[])
         spdlog::error(e.what());
         return EXIT_FAILURE;
     }   
-    ::setVerbosityForSPDLOG(programOptions.verbosity);
 
+    CustomLogger customLogger{programOptions};
     try
     {
-        ::initializeMetrics(programOptions.prometheusURL);
+        UWaveServer::Metrics::initialize(
+            programOptions.exportMetrics,
+            programOptions.otelHTTPMetricsOptions);
     }
     catch (const std::exception &e)
     {
         spdlog::critical("Failed to initalize metrics with "
                        + std::string {e.what()});
+        SPDLOG_LOGGER_CRITICAL(customLogger.logger,
+                               "Failed to initialize metrics with {}",
+                               std::string {e.what()});
         return EXIT_FAILURE;
     }
 
-    mObservableSuccessResponses["stream-query"] = 0;
-    mObservableServerErrorResponses["stream-query"] = 0;
-    mObservableClientErrorResponses["stream-query"] = 0;
+    //mObservableSuccessResponses["stream-query"] = 0;
+    //mObservableServerErrorResponses["stream-query"] = 0;
+    //mObservableClientErrorResponses["stream-query"] = 0;
+    UWaveServer::Metrics::initializeMetricsSingleton();
+
+    auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
 
     UWaveServer::Database::Credentials databaseCredentials;
     databaseCredentials.setUser(programOptions.databaseUser);
@@ -341,14 +386,13 @@ int main(int argc, char *argv[])
     auto client = std::make_unique<UWaveServer::Database::ReadOnlyClient> (databaseCredentials);
     clients.push_back(std::move(client));
 
-    CustomLogger customLogger;
     crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
 
     CROW_ROUTE(app, "/")
-    ([]()
+    ([&]()
     {
-        spdlog::debug("Default route");
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Default route");
         crow::response response;
         response.code = 200;
         response.set_header("Content-Type", "application/json");
@@ -365,7 +409,9 @@ int main(int argc, char *argv[])
         auto originalKeys = request.url_params.keys();
         if (originalKeys.empty())
         {
-            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+            metrics.incrementClientErrorCounter();
             crow::response response;
             response.code = 400;
             response.body = "No query parameters specified - try something like network=UU&station=BGU&channel=HHZ&location=01&startime=1234&endtime=5678&nodata=204";
@@ -396,7 +442,9 @@ int main(int argc, char *argv[])
         }
         if (network.empty())
         {
-            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+            metrics.incrementClientErrorCounter();
             crow::response response;
             response.code = 400;
             response.body = "Network code must be supplied in net= or network= parameters - e.g., net=UU";
@@ -414,7 +462,9 @@ int main(int argc, char *argv[])
         }
         if (station.empty())
         {
-            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+            metrics.incrementClientErrorCounter();
             crow::response response;
             response.code = 400;
             response.body = "Station name must be supplied in sta= or station= parameters  e.g., sta=CTU";
@@ -473,8 +523,10 @@ int main(int argc, char *argv[])
                     }
                     catch (...)
                     {
-                        mObservableClientErrorResponses.add_or_assign(
-                            "stream-query", 1);
+                        //mObservableClientErrorResponses.add_or_assign(
+                        //    "stream-query", 1);
+                        //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                        metrics.incrementClientErrorCounter();
                         crow::response response;
                         response.code = 400;
                         response.body = startTimeKey + "=" 
@@ -507,8 +559,10 @@ int main(int argc, char *argv[])
                     }
                     catch (...)
                     {
-                        mObservableClientErrorResponses.add_or_assign(
-                           "stream-query", 1);
+                        //mObservableClientErrorResponses.add_or_assign(
+                        //   "stream-query", 1);
+                        //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                        metrics.incrementClientErrorCounter();
                         crow::response response;
                         response.code = 400;
                         response.body = endTimeKey + "=" + 
@@ -522,7 +576,9 @@ int main(int argc, char *argv[])
 //std::cout << std::setprecision(16) << startTime << " " << endTime << " " << endTime - startTime << std::endl;
         if (startTime > endTime)
         {
-            mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //mObservableClientErrorResponses.add_or_assign("stream-query", 1);
+            //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+            metrics.incrementClientErrorCounter();
             crow::response response;
             response.code = 400;
             response.body = "startime cannot exceed endtime";
@@ -544,8 +600,10 @@ int main(int argc, char *argv[])
                 format != "miniseed3" &&
                 format != "json")
             {
-                mObservableClientErrorResponses.add_or_assign(
-                    "stream-query", 1);
+                //mObservableClientErrorResponses.add_or_assign(
+                //    "stream-query", 1);
+                //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                metrics.incrementClientErrorCounter();
                 crow::response response;
                 response.code = 400;
                 response.body
@@ -569,9 +627,12 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    spdlog::critical("Unhandled format " + format);
-                    mObservableServerErrorResponses.add_or_assign(
-                        "stream-query", 1);
+                    SPDLOG_LOGGER_ERROR(customLogger.logger,
+                                        "Unhandled format {}", format);
+                    //mObservableServerErrorResponses.add_or_assign(
+                    //    "stream-query", 1);
+                    //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                    metrics.incrementServerErrorCounter();
                     crow::response response;
                     response.code = 500;
                     response.body = "server could not properly process format";
@@ -585,7 +646,7 @@ int main(int argc, char *argv[])
              = ::getOriginalKey(lowerCaseToOriginalKeys, {"nodata"});
         if (request.url_params.get(noDataKey) != nullptr)
         {
-            spdlog::debug("No data found");
+            SPDLOG_LOGGER_DEBUG(customLogger.logger, "No data found");
             noData
                 = crow::utility::lexical_cast<int>
                   (request.url_params.get(noDataKey));
@@ -602,7 +663,7 @@ int main(int argc, char *argv[])
         try
         {
             // TODO histogram metrics
-            spdlog::debug("Unpacking data");
+            SPDLOG_LOGGER_DEBUG(customLogger.logger, "Unpacking data");
             auto queryStartTime = std::chrono::high_resolution_clock::now();
             std::vector<UWaveServer::Packet> packets;
             // Two-pass loop - first check our caches
@@ -639,14 +700,17 @@ int main(int argc, char *argv[])
             double queryDuration
                 = std::chrono::duration_cast<std::chrono::microseconds>
                   (queryEndTime - queryStartTime).count()*1.e-6;
-            spdlog::info("Query duration and unpack "
-                       + std::to_string(queryDuration)
-                       + " (s)");
+            SPDLOG_LOGGER_INFO(customLogger.logger,
+                               "Query duration and unpack {} (s)",
+                               queryDuration);
             if (packets.empty())
             {
                 // I did my job right
-                mObservableSuccessResponses.add_or_assign("stream-query", 1);
-                spdlog::debug("No data packets found in query");
+                //mObservableSuccessResponses.add_or_assign("stream-query", 1);
+                //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                metrics.incrementSuccessResponseCounter();
+                SPDLOG_LOGGER_INFO(customLogger.logger,
+                                   "No data packets found in query");
                 crow::response response;
                 response.code = noData;
                 response.body = "No data found";
@@ -654,7 +718,9 @@ int main(int argc, char *argv[])
             }
             if (format == "json")
             {
-                mObservableSuccessResponses.add_or_assign("stream-query", 1);
+                //mObservableSuccessResponses.add_or_assign("stream-query", 1);
+                //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                metrics.incrementSuccessResponseCounter();
                 auto payload = ::packetsToCrowJSON(packets);
                 crow::response response;
                 response.set_header("Content-Type", "application/json");
@@ -665,10 +731,11 @@ int main(int argc, char *argv[])
             else
             {
                 constexpr int recordLength{512};
-                mObservableSuccessResponses.add_or_assign("stream-query", 1);
+                //mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 auto payload
                     = ::toMiniSEED(packets, recordLength, wantMiniSEED3, customLogger.logger.get());
-                //spdlog::info("returning : " +  std::to_string (packets.size()) + " with payload size " + std::to_string (payload.size()));
+                //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+                metrics.incrementSuccessResponseCounter();
                 crow::response response;
                 response.set_header("Content-Type", "application/octet-stream");
                 response.code = 200;
@@ -679,15 +746,20 @@ int main(int argc, char *argv[])
         }
         catch (const std::exception &e)
         {
-            mObservableServerErrorResponses.add_or_assign("stream-query", 1);
-            spdlog::warn(e.what());
+            //mObservableServerErrorResponses.add_or_assign("stream-query", 1);
+            //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+            metrics.incrementServerErrorCounter();
+            SPDLOG_LOGGER_WARN(customLogger.logger, "Server error: {}",
+                               std::string {e.what()});
             crow::response response;
             response.code = 500;
             response.body = "Server error";
             return response;
         }
 
-        mObservableServerErrorResponses.add_or_assign("stream-query", 1);
+        //mObservableServerErrorResponses.add_or_assign("stream-query", 1);
+        //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
+        metrics.incrementServerErrorCounter();
         crow::response response;
         response.code = 500;
         response.body = "Unhandled server route";
@@ -705,14 +777,15 @@ int main(int argc, char *argv[])
 //#endif
            //.multithreaded()
            .run();
-        cleanupMetrics();
+        UWaveServer::Metrics::cleanup();
         return EXIT_SUCCESS;
     }
     catch (const std::exception &e)
     {
-        spdlog::critical("uHTTPWebServer failed with "
-                       + std::string {e.what()});
-        cleanupMetrics();
+        SPDLOG_LOGGER_CRITICAL(customLogger.logger,
+                               "uHTTPWebServer failed with {}",
+                               std::string {e.what()});
+        UWaveServer::Metrics::cleanup();
         return EXIT_FAILURE;
     }
 }
@@ -723,6 +796,7 @@ int main(int argc, char *argv[])
 namespace
 {
 
+/*
 void setVerbosityForSPDLOG(const int verbosity)
 {
     if (verbosity <= 1)
@@ -733,6 +807,7 @@ void setVerbosityForSPDLOG(const int verbosity)
     if (verbosity == 3){spdlog::set_level(spdlog::level::info);}
     if (verbosity >= 4){spdlog::set_level(spdlog::level::debug);}
 }   
+*/
 
 /// Read the program options from the command line
 std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[])
@@ -791,6 +866,7 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
         = propertyTree.get<int> ("General.verbosity", options.verbosity);
 
     // Prometheus
+/*
     uint16_t prometheusPort
         = propertyTree.get<uint16_t> ("Prometheus.port", 9200);
     std::string prometheusHost
@@ -800,6 +876,7 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
         options.prometheusURL = prometheusHost + ":" 
                               + std::to_string(prometheusPort);
     }
+*/
 
     // Crow options
 

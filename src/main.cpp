@@ -50,6 +50,8 @@ opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     totalPacketsWrittenCounter;
 opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
     totalPacketsRejectedCounter;
+opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>
+    databaseWritePerformanceHistogram{nullptr};
 
 }
 
@@ -158,7 +160,7 @@ public:
             // Packets received from import
             totalPacketsReceivedCounter
                 = meter->CreateInt64ObservableCounter(
-                    "seismic_data.storage.client.packets.received",
+                    "seismic_data.waveform_storage.client.packets.received",
                     "Number of packets received from acquisition.",
                     "{packets}");
             totalPacketsReceivedCounter->AddCallback(
@@ -167,12 +169,20 @@ public:
 
             totalPacketsReceivedCounter
                 = meter->CreateInt64ObservableCounter(
-                    "seismic_data.storage.client.packets.written",
+                    "seismic_data.waveform_storage.client.packets.written",
                     "Number of packets written to database.",
                     "{packets}");
             totalPacketsReceivedCounter->AddCallback(
                 UMetrics::observeNumberOfPacketsWritten,
                 nullptr);
+
+            auto histogramMeter
+                = provider->GetMeter("database_write_duration", "1.2.0");
+            databaseWritePerformanceHistogram
+                = histogramMeter->CreateDoubleHistogram(
+                  "seismic_data.waveform_storage.database.write.duration",
+                  "Time required to write packet to the database",
+                  "{s}");
 
         }
 
@@ -400,14 +410,12 @@ public:
                           (t2 - t1).count()*1.e-6;
                     //mObservablePacketsWritten.add_or_assign(databaseKey, 1);
                     metrics.incrementWrittenPacketsCounter();
-/*
-                    if (mWriteHistogram)
+                    if (databaseWritePerformanceHistogram)
                     {
-                        mWriteHistogram->Record(duration,
-                                                histogramKey,
-                                                otelContext);
+                        databaseWritePerformanceHistogram->Record(duration,
+                                                                  histogramKey,
+                                                                  otelContext);
                     }
-*/
                     averageTime = averageTime + duration;
                     cumulativeTime = cumulativeTime + duration;
                     nRowsWritten = nRowsWritten + 1; //packet.size();
@@ -626,7 +634,7 @@ public:
         }
         std::this_thread::sleep_for(std::chrono::milliseconds {50});
         mDatabaseWriterThreads.clear();
-        mWriterThroughPut.clear();
+        //mWriterThroughPut.clear();
         emptyQueues();
     }
     /// @brief Starts the processes
@@ -704,7 +712,7 @@ public:
     std::condition_variable mStopCondition;
     std::vector<std::future<void>> mDataAcquisitionFutures;
     std::vector<std::thread> mDatabaseWriterThreads;
-    std::vector<std::pair<int, double>> mWriterThroughPut;
+    //std::vector<std::pair<int, double>> mWriterThroughPut;
     std::thread mShallowPacketSanitizerThread;
     std::chrono::seconds mLogWritePerformanceInterval{3600};
     std::chrono::seconds mMaximumLatency{-1};
@@ -856,6 +864,23 @@ void setVerbosityForSPDLOG(const int verbosity)
 }   
 */
 
+[[nodiscard]]
+std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
+                                const std::string &section)
+{
+    std::string result;
+    std::string otelCollectorHost
+        = propertyTree.get<std::string> (section + ".host", "");
+    uint16_t otelCollectorPort
+        = propertyTree.get<uint16_t> (section + ".port", 4218);
+    if (!otelCollectorHost.empty())
+    {   
+        result = otelCollectorHost + ":" 
+               + std::to_string(otelCollectorPort);
+    }   
+    return result;
+}
+
 [[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions
 getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
                    const std::string &clientName)
@@ -969,6 +994,7 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
             "Number of database threads must be between 1 and 2048");
     }
 
+    /*
     // Prometheus
     uint16_t prometheusPort
         = propertyTree.get<uint16_t> ("Prometheus.port", 9200);
@@ -979,6 +1005,50 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
         options.prometheusURL = prometheusHost + ":" 
                               + std::to_string(prometheusPort);
     }
+    */
+
+    // Logging
+    UWaveServer::OTelHTTPLogOptions logOptions;
+    logOptions.url
+         = getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
+    logOptions.suffix
+         = propertyTree.get<std::string>
+           ("OTelHTTPLogOptions.suffix", "/v1/logs");
+    if (!logOptions.url.empty())
+    {   
+        if (!logOptions.suffix.empty())
+        {   
+            if (!logOptions.url.ends_with("/") &&
+                !logOptions.suffix.starts_with("/"))
+            {   
+                logOptions.suffix = "/" + logOptions.suffix;
+            }
+        }
+    }
+    if (!logOptions.url.empty())
+    {   
+        options.exportLogs = true;
+        options.otelHTTPLogOptions = logOptions;
+    }
+
+    // Metrics
+    UWaveServer::OTelHTTPMetricsOptions metricsOptions;
+    metricsOptions.url
+         = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+    metricsOptions.suffix
+         = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
+                                          "/v1/metrics");
+    if (!metricsOptions.url.empty())
+    {   
+        if (!metricsOptions.suffix.empty())
+        {
+            if (!metricsOptions.url.ends_with("/") &&
+                !metricsOptions.suffix.starts_with("/"))
+            {
+                metricsOptions.suffix = "/" + metricsOptions.suffix;
+            }
+        }
+    }   
 
     // Database
     options.databaseUser

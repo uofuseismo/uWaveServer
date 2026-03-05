@@ -26,7 +26,7 @@ struct ProgramOptions
     OTelHTTPMetricsOptions otelHTTPMetricsOptions;
     OTelHTTPLogOptions otelHTTPLogOptions;
     std::chrono::seconds printSummaryInterval{std::chrono::minutes {15}};
-    std::string prometheusURL{"localhost:9020"};
+    //std::string prometheusURL{"localhost:9020"};
     std::string databaseUser{getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_USER")};
     std::string databasePassword{getEnvironmentVariable("UWAVE_SERVER_DATABASE_READ_WRITE_PASSWORD")};
     std::string databaseName{getEnvironmentVariable("UWAVE_SERVER_DATABASE_NAME")};

@@ -224,7 +224,8 @@ if (${Crow_FOUND})
                                  Boost::program_options
                                  Crow::Crow
                                  spdlog::spdlog_header_only
-                                 opentelemetry-cpp::prometheus_exporter)
+                                 #opentelemetry-cpp::prometheus_exporter
+                                 )
    target_sources(uHTTPWaveServer
                   PUBLIC FILE_SET
                       CXX_MODULES
@@ -232,6 +233,7 @@ if (${Crow_FOUND})
                          src/modules
                       FILES
                          #src/modules/programOptions.cppm
+                         src/modules/httpServerMetrics.cppm
                          src/modules/otelOptions.cppm
                          src/modules/logger.cppm
                          src/modules/otelSpdlogSink.cppm

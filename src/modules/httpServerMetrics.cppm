@@ -21,7 +21,7 @@ module;
 #include <opentelemetry/sdk/metrics/view/meter_selector_factory.h>
 #include <opentelemetry/sdk/metrics/view/view_factory.h>
 
-export module WriterMetrics;
+export module HTTPServerMetrics;
 import OTelOptions;
 
 namespace UWaveServer::Metrics
@@ -71,11 +71,11 @@ export
     auto histogramInstrumentSelector
         = otel::sdk::metrics::InstrumentSelectorFactory::Create(
              opentelemetry::sdk::metrics::InstrumentType::kHistogram,
-             "database_write_duration_histogram",
+             "database_read_duration_histogram",
              "{s}");  
     auto histogramMeterSelector
         = otel::sdk::metrics::MeterSelectorFactory::Create(
-             "database_write_duration",
+             "database_read_duration",
              "https://opentelemetry.io/schemas/1.2.0",
              "1.2.0");
     auto histogramAggregationConfig
@@ -91,8 +91,8 @@ export
                                1000.0};
     auto histogramView 
         = opentelemetry::sdk::metrics::ViewFactory::Create(
-             "database_write_duration",
-              "Time required to write packet to the database.",
+             "database_read_duration",
+              "Time required to read data from the database.",
               opentelemetry::sdk::metrics::AggregationType::kHistogram,
               histogramAggregationConfig);
     metricsProvider->AddView(std::move(histogramInstrumentSelector),
@@ -117,12 +117,6 @@ export void cleanup()
 export class MetricsSingleton
 {
 public:
-    enum class Reason
-    {
-        Duplicate,
-        Expired,
-        Future
-    };
     static MetricsSingleton &getInstance()
     {   
         std::mutex mutex;
@@ -130,67 +124,42 @@ public:
         static MetricsSingleton instance;
         return instance;
     }   
-    void incrementReceivedPacketsCounter() noexcept
+    void incrementSuccessResponseCounter() noexcept
     {   
-        mReceivedPacketsCounter.fetch_add(1, std::memory_order_relaxed);
+        mSuccessResponseCounter.fetch_add(1, std::memory_order_relaxed);
     }   
-    [[nodiscard]] int64_t getReceivedPacketsCount() const noexcept
+    [[nodiscard]] int64_t getSuccessResponseCount() const noexcept
     {   
-        return mReceivedPacketsCounter.load();
+        return mSuccessResponseCounter.load();
     }   
-    void incrementWrittenPacketsCounter() noexcept
+    void incrementClientErrorCounter() noexcept
+    {   
+        mClientErrorResponseCounter.fetch_add(1, std::memory_order_relaxed);
+    }   
+    [[nodiscard]] int64_t getClientErrorCount() const noexcept
+    {   
+        return mClientErrorResponseCounter.load();
+    }   
+    void incrementServerErrorCounter() noexcept
     {
-        mWrittenPacketsCounter.fetch_add(1, std::memory_order_relaxed);
+        mServerErrorResponseCounter.fetch_add(1, std::memory_order_relaxed);
     }
-    [[nodiscard]] int64_t getWrittenPacketsCount() const noexcept
-    {   
-        return mWrittenPacketsCounter.load();
-    }   
-    void incrementNotWrittenPacketsCounter() noexcept
+    [[nodiscard]] int64_t getServerErrorCount() const noexcept
     {
-        mWrittenPacketsCounter.fetch_add(1, std::memory_order_relaxed);
-    }
-    [[nodiscard]] int64_t getNotWrittenPacketsCount() const noexcept
-    {
-        return mWrittenPacketsCounter.load();
-    }
-    void incrementRejectedPacketsCounter(const Reason reason) noexcept
-    {   
-        mRejectedPacketsCounter.fetch_add(1, std::memory_order_relaxed);
-        if (reason == Reason::Duplicate)
-        {
-        }
-        else if (reason == Reason::Expired)
-        {
-        }
-        else if (reason == Reason::Future)
-        {
-        }
-    }   
-    [[nodiscard]] int64_t getRejectedPacketsCount() const noexcept
-    {
-        return mRejectedPacketsCounter.load();
+        return mServerErrorResponseCounter.load();
     }
     void resetCounters()
-    {   
-        mReceivedPacketsCounter.store(0);
-        mWrittenPacketsCounter.store(0);
-        mNotWrittenPacketsCounter.store(0);
-        mRejectedPacketsCounter.store(0);
-        mFuturePacketsCounter.store(0);
-        mExpiredPacketsCounter.store(0);
-        mDuplicatePacketsCounter.store(0);
+    {
+        mSuccessResponseCounter.store(0);
+        mServerErrorResponseCounter.store(0);
+        mClientErrorResponseCounter.store(0);
     }   
 private:
     MetricsSingleton() = default;
     ~MetricsSingleton() = default;
-    std::atomic<int64_t> mReceivedPacketsCounter{0};
-    std::atomic<int64_t> mWrittenPacketsCounter{0};
-    std::atomic<int64_t> mNotWrittenPacketsCounter{0};
-    std::atomic<int64_t> mRejectedPacketsCounter{0};
-    std::atomic<int64_t> mFuturePacketsCounter{0};
-    std::atomic<int64_t> mExpiredPacketsCounter{0};
-    std::atomic<int64_t> mDuplicatePacketsCounter{0};
+    std::atomic<int64_t> mSuccessResponseCounter{0};
+    std::atomic<int64_t> mServerErrorResponseCounter{0};
+    std::atomic<int64_t> mClientErrorResponseCounter{0};
 };
 
 export void initializeMetricsSingleton()
@@ -198,7 +167,7 @@ export void initializeMetricsSingleton()
     MetricsSingleton::getInstance();
 }
 
-export void observeNumberOfPacketsReceived(
+export void observeNumberOfSuccessResponses(
     opentelemetry::metrics::ObserverResult observerResult,
     void *)
 {
@@ -220,7 +189,7 @@ export void observeNumberOfPacketsReceived(
         try
         {
             auto &instance = MetricsSingleton::getInstance();
-            auto value = instance.getReceivedPacketsCount();
+            auto value = instance.getSuccessResponseCount();
             observer->Observe(value);
         }
         catch (const std::exception &e) 
@@ -230,7 +199,7 @@ export void observeNumberOfPacketsReceived(
     }
 }
 
-export void observeNumberOfPacketsWritten(
+export void observeNumberOfClientErrors(
     opentelemetry::metrics::ObserverResult observerResult,
     void *)
 {
@@ -252,7 +221,7 @@ export void observeNumberOfPacketsWritten(
         try
         {
             auto &instance = MetricsSingleton::getInstance();
-            auto value = instance.getWrittenPacketsCount();
+            auto value = instance.getClientErrorCount();
             observer->Observe(value);
         }
         catch (const std::exception &e) 
@@ -262,7 +231,7 @@ export void observeNumberOfPacketsWritten(
     }
 }
 
-export void observeNumberOfPacketsNotWritten(
+export void observeNumberOfServerErrors(
     opentelemetry::metrics::ObserverResult observerResult,
     void *)
 {
@@ -284,7 +253,7 @@ export void observeNumberOfPacketsNotWritten(
         try
         {
             auto &instance = MetricsSingleton::getInstance();
-            auto value = instance.getNotWrittenPacketsCount();
+            auto value = instance.getServerErrorCount();
             observer->Observe(value);
         }
         catch (const std::exception &e) 
