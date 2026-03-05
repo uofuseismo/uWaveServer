@@ -9,6 +9,7 @@ option(BUILD_TESTS "Compile unit tests" ON)
 #option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
+include(GenerateExportHeader)
 include(FetchContent)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
