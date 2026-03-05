@@ -28,7 +28,8 @@ public:
     ///                                log flagged channels at approximately
     ///                                this interval.
     TestFuturePacket(const std::chrono::microseconds &maxFutureTime,
-                     const std::chrono::seconds &logBadDataInterval);
+                     const std::chrono::seconds &logBadDataInterval,
+                     std::shared_ptr<spdlog::logger> logger = nullptr);
     /// @brief Copy constructor.
     TestFuturePacket(const TestFuturePacket &testFuturePacket);
     /// @brief Move constructor.

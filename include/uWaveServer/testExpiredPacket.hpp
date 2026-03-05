@@ -30,7 +30,8 @@ public:
     ///                                log flagged channels at approximately
     ///                                this interval.
     TestExpiredPacket(const std::chrono::microseconds &maxExpiredTime,
-                      const std::chrono::seconds &logBadDataInterval);
+                      const std::chrono::seconds &logBadDataInterval,
+                      std::shared_ptr<spdlog::logger> logger = nullptr);
     /// @brief Copy constructor.
     TestExpiredPacket(const TestExpiredPacket &testExpiredPacket);
     /// @brief Move constructor.

@@ -48,9 +48,11 @@ public:
         *this = impl;
     }
     TestExpiredPacketImpl(const std::chrono::microseconds &maxExpiredTime,
-                         const std::chrono::seconds &logBadDataInterval) :
+                          const std::chrono::seconds &logBadDataInterval,
+                          std::shared_ptr<spdlog::logger> logger) :
         mMaxExpiredTime(maxExpiredTime),
-        mLogBadDataInterval(logBadDataInterval)
+        mLogBadDataInterval(logBadDataInterval),
+        mLogger(logger)
     {
         if (mMaxExpiredTime.count() <= 0)
         {
@@ -58,6 +60,12 @@ public:
         }
         if (mLogBadDataInterval.count() >= 0)
         {
+            mLogBadData = true;
+            if (mLogger == nullptr)
+            {
+                mLogger
+                    = spdlog::stdout_color_mt("expired-packet-tester-console");
+            }
             mLogBadData = true;
         }
         else
@@ -78,7 +86,10 @@ public:
         }
         catch (...)
         {
-            spdlog::warn("Could not extract name of packet");
+            if (mLogger)
+            {
+                SPDLOG_LOGGER_WARN(mLogger, "Could not extract name of packet");
+            }
         }
         auto nowSeconds
             = std::chrono::duration_cast<std::chrono::seconds> (nowMuSec);
@@ -93,18 +104,24 @@ public:
         }
         catch (...)
         {
-            spdlog::warn("Failed to add " + name + " to set");
+            if (mLogger)
+            {
+                SPDLOG_LOGGER_WARN(mLogger, "Failed to add {} to set", name);
+            }
         }
         if (nowSeconds >= mLastLogTime + mLogBadDataInterval)
         {
             if (!mExpiredChannels.empty())
             {
-                std::string message{"Expired data detected for: "};
-                for (const auto &channel : mExpiredChannels)
+                if (mLogger)
                 {
-                    message = message + " " + channel;
+                    std::string message{"Expired data detected for: "};
+                    for (const auto &channel : mExpiredChannels)
+                    {
+                        message = message + " " + channel;
+                    }
+                    SPDLOG_LOGGER_INFO(mLogger, "{}", message);
                 }
-                spdlog::info(message);
                 mExpiredChannels.clear();
                 mLastLogTime = nowSeconds;
             }
@@ -130,23 +147,28 @@ public:
     std::chrono::microseconds mMaxExpiredTime{std::chrono::seconds{7776000}};
     std::chrono::seconds mLastLogTime{0};
     std::chrono::seconds mLogBadDataInterval{3600};
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     bool mLogBadData{true};
 };
 
 /// Constructor
 TestExpiredPacket::TestExpiredPacket() :
     pImpl(std::make_unique<TestExpiredPacketImpl> (
-        std::chrono::microseconds {std::chrono::seconds{7776000}},
-        std::chrono::seconds {3600}))
+             std::chrono::microseconds {std::chrono::seconds{7776000}},
+             std::chrono::seconds {3600},
+             nullptr)
+          )
 {
 }
 
 /// Constructor with options
 TestExpiredPacket::TestExpiredPacket(
     const std::chrono::microseconds &maxExpiredTime,
-    const std::chrono::seconds &logBadDataInterval) :
+    const std::chrono::seconds &logBadDataInterval,
+    std::shared_ptr<spdlog::logger> logger) :
     pImpl(std::make_unique<TestExpiredPacketImpl> (maxExpiredTime,
-                                                   logBadDataInterval))
+                                                   logBadDataInterval,
+                                                   logger))
 {
 }
 

@@ -349,7 +349,11 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }   
 
+    // Initializes logger
     CustomLogger customLogger{programOptions};
+
+    // Initialize metrics
+    UWaveServer::Metrics::initializeMetricsSingleton();
     try
     {
         UWaveServer::Metrics::initialize(
@@ -369,7 +373,6 @@ int main(int argc, char *argv[])
     //mObservableSuccessResponses["stream-query"] = 0;
     //mObservableServerErrorResponses["stream-query"] = 0;
     //mObservableClientErrorResponses["stream-query"] = 0;
-    UWaveServer::Metrics::initializeMetricsSingleton();
 
     auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
 
@@ -733,7 +736,8 @@ int main(int argc, char *argv[])
                 constexpr int recordLength{512};
                 //mObservableSuccessResponses.add_or_assign("stream-query", 1);
                 auto payload
-                    = ::toMiniSEED(packets, recordLength, wantMiniSEED3, customLogger.logger.get());
+                    = ::toMiniSEED(packets, recordLength, wantMiniSEED3,
+                                   customLogger.logger.get());
                 //auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
                 metrics.incrementSuccessResponseCounter();
                 crow::response response;
@@ -846,6 +850,23 @@ Allowed options)""");
     return {iniFile, false};
 }
 
+[[nodiscard]]
+std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
+                                const std::string &section)
+{
+    std::string result;
+    std::string otelCollectorHost
+        = propertyTree.get<std::string> (section + ".host", ""); 
+    uint16_t otelCollectorPort
+        = propertyTree.get<uint16_t> (section + ".port", 4218);
+    if (!otelCollectorHost.empty())
+    {    
+        result = otelCollectorHost + ":"  
+               + std::to_string(otelCollectorPort);
+    }
+    return result;
+}
+
 ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
 {
     ::ProgramOptions options;
@@ -877,6 +898,49 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
                               + std::to_string(prometheusPort);
     }
 */
+
+    // Logging
+    UWaveServer::OTelHTTPLogOptions logOptions;
+    logOptions.url
+         = getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
+    logOptions.suffix
+         = propertyTree.get<std::string>
+           ("OTelHTTPLogOptions.suffix", "/v1/logs");
+    if (!logOptions.url.empty())
+    {    
+        if (!logOptions.suffix.empty())
+        {
+            if (!logOptions.url.ends_with("/") &&
+                !logOptions.suffix.starts_with("/"))
+            {
+                logOptions.suffix = "/" + logOptions.suffix;
+            }
+        }
+    }    
+    if (!logOptions.url.empty())
+    {    
+        options.exportLogs = true;
+        options.otelHTTPLogOptions = logOptions;
+    }    
+
+    // Metrics
+    UWaveServer::OTelHTTPMetricsOptions metricsOptions;
+    metricsOptions.url
+         = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+    metricsOptions.suffix
+         = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
+                                          "/v1/metrics");
+    if (!metricsOptions.url.empty())
+    {    
+        if (!metricsOptions.suffix.empty())
+        {
+            if (!metricsOptions.url.ends_with("/") &&
+                !metricsOptions.suffix.starts_with("/"))
+            {
+                metricsOptions.suffix = "/" + metricsOptions.suffix;
+            }
+        }
+    }    
 
     // Crow options
 

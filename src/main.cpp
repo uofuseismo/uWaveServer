@@ -243,6 +243,10 @@ public:
     // packet.
     void shallowDeduplicator()
     {
+#ifndef NDEBUG
+        assert(mTestFuturePacket != nullptr);
+        assert(mTestExpiredPacket != nullptr);
+#endif
         SPDLOG_LOGGER_INFO(mLogger, "Thread entering shallow packet sanitizer");
         auto &metrics
             = UWaveServer::Metrics::MetricsSingleton::getInstance();
@@ -262,7 +266,7 @@ public:
                 {
                     if (allow)
                     {
-                        allow = mTestFuturePacket.allow(packet);
+                        allow = mTestFuturePacket->allow(packet);
                         if (!allow)
                         {
                             metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Future);
@@ -283,7 +287,7 @@ public:
                 {
                     if (allow)
                     {
-                        allow = mTestExpiredPacket.allow(packet);
+                        allow = mTestExpiredPacket->allow(packet);
                         if (!allow)
                         {
                             metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Expired);
@@ -372,6 +376,19 @@ public:
         {
             databaseKey = databaseKey + "." + mProgramOptions.databaseSchema;
         }
+
+        // Testers
+        mTestFuturePacket
+            = std::make_unique<UWaveServer::TestFuturePacket> (
+                std::chrono::microseconds {0},
+                std::chrono::hours {1},
+                mLogger);
+        mTestExpiredPacket
+            = std::make_unique<UWaveServer::TestExpiredPacket> (
+                std::chrono::days {60},
+                std::chrono::hours {1},
+                mLogger);
+
         //mObservablePacketsWritten.add_or_assign(databaseKey, 0);
         //mObservablePacketsNotWritten.add_or_assign(databaseKey, 0);
         auto &metrics
@@ -698,6 +715,9 @@ public:
     UWaveServer::TestDuplicatePacket mTestDeepDuplicatePacket {
         std::chrono::seconds {120},
         std::chrono::hours {1}};
+    std::unique_ptr<UWaveServer::TestFuturePacket> mTestFuturePacket{nullptr};
+    std::unique_ptr<UWaveServer::TestExpiredPacket> mTestExpiredPacket{nullptr};
+/*
     UWaveServer::TestFuturePacket mTestFuturePacket{
         std::chrono::microseconds {0},
         std::chrono::hours {1}};
@@ -706,6 +726,7 @@ public:
         // have data older than a few weeks
         std::chrono::days {60},
         std::chrono::hours {1}};
+*/
     UWaveServer::ProgramOptions mProgramOptions;
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
     mutable std::mutex mStopContext;

@@ -160,10 +160,11 @@ TestFuturePacket::TestFuturePacket() :
 /// Constructor with options
 TestFuturePacket::TestFuturePacket(
     const std::chrono::microseconds &maxFutureTime,
-    const std::chrono::seconds &logBadDataInterval) :
+    const std::chrono::seconds &logBadDataInterval,
+    std::shared_ptr<spdlog::logger> logger) :
     pImpl(std::make_unique<TestFuturePacketImpl> (maxFutureTime,
                                                   logBadDataInterval,
-                                                  nullptr))
+                                                  logger))
 {
 }
 
