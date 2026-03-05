@@ -58,7 +58,6 @@ jobs:
              cpack -B /tmp/artifacts
              cpack -B /tmp/artifacts TGZ
              rm -rf /tmp/artifacts/_CPack_Packages
-             make uWaveServer-u24
              cp /tmp/artifacts/*-Linux.tar.gz /tmp/workspace/
              cp Dockerfile.u24 /tmp/workspace/
              ls /tmp/workspace/
