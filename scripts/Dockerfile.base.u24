@@ -19,6 +19,7 @@ RUN export DEBIAN_FRONTEND=noninteractive &&\
     apt-get install -y file &&\
     apt-get install -y git &&\
     apt-get install -y clang &&\
+    apt-get install -y clang-tidy &&\
     apt-get install -y curl &&\
     apt-get install -y autoconf &&\
     apt-get install -y make &&\
@@ -79,8 +80,8 @@ RUN cd /home/ubuntu &&\
     rm v3.2.4.tar.gz &&\
     cd libmseed-3.2.4 &&\
     cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/usr/local &&\
-    cd build &&\
-    make install &&\
+    cmake --build build &&\
+    cmake --install build &&\
     cd /home/ubuntu &&\
     rm -r libmseed-3.2.4 &&\
     wget -q https://github.com/EarthScope/libslink/archive/refs/tags/v4.2.0.tar.gz &&\
@@ -130,21 +131,21 @@ RUN cd /home/ubuntu &&\
     cd opentelemetry-cpp-1.24.0 &&\
     mkdir build &&\
     cd build &&\
-    cmake .. -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DWITH_PROMETHEUS=ON -DCMAKE_CXX_COMPILER=clang++ -DWITH_EXAMPLES=OFF -DWITH_ABI_VERSION_1=OFF -DWITH_ABI_VERSION_2=ON &&\
+    cmake .. -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DWITH_EXAMPLES=OFF -DWITH_ABI_VERSION_1=OFF -DWITH_ABI_VERSION_2=ON &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
     rm -r opentelemetry-cpp-1.24.0 &&\
-    wget -q https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.0.tar.gz &&\
-    tar -xf v1.3.0.tar.gz &&\
-    rm v1.3.0.tar.gz &&\
-    cd Crow-1.3.0/ &&\
+    wget -q https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.1.tar.gz &&\
+    tar -xf v1.3.1.tar.gz &&\
+    rm v1.3.1.tar.gz &&\
+    cd Crow-1.3.1/ &&\
     cmake -B build -DCROW_USE_BOOST=ON -DCROW_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang &&\
     cd build &&\
     make &&\
     make install &&\
     cd /home/ubuntu &&\
-    rm -rf Crow-1.3.0/
+    rm -rf Crow-1.3.1/
 
 RUN cd /home/ubuntu &&\ 
     wget https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.25.0.tar.gz &&\ 

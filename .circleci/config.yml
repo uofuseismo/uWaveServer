@@ -56,18 +56,47 @@ jobs:
              mkdir -p /tmp/artifacts
              mkdir -p /tmp/workspace
              cpack -B /tmp/artifacts
+             cpack -B /tmp/artifacts TGZ
              rm -rf /tmp/artifacts/_CPack_Packages
-             make uWaveServer-deb
-             mv *-Linux.deb /tmp/workspace/
-             mv Dockerfile.deb /tmp/workspace/
+             make uWaveServer-u24
+             cp /tmp/artifacts/*-Linux.tar.gz /tmp/workspace/
+             cp Dockerfile.u24 /tmp/workspace/
              ls /tmp/workspace/
       - store_artifacts:
           path: /tmp/artifacts
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
-            - Dockerfile.deb
+            - Dockerfile.u24
             - uWaveServer-*
+  # End compile job
+  deploy-job:
+    docker:
+      - image: cimg/base:2022.09
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: "Quay login"
+          command: |
+            docker login -u="${QUAY_ROBOT_USER}" -p="${QUAY_ROBOT_PASSWORD}" quay.io
+      - run:
+          name: "Create docker and upload image"
+          command: |
+            #ls /tmp/workspace/
+            cd /tmp/workspace
+            #ls
+            # Figure out version from app-name-MAJOR.MINOR.PATCH-Linux.tar.gz
+            tarFile=$(ls *Linux.tar.gz)
+            version=$(echo ${tarFile} | sed 's/uWaveServer-//g' | sed 's/-Linux.tar.gz//g')
+            #echo ${version}
+            docker build -t uwaveserver:${version} -t uwaveserver:latest -f ./Dockerfile.u24 .
+            docker tag uwaveserver:${version} quay.io/uuss/uwaveserver:${version}
+            docker push quay.io/uuss/uwaveserver:${version}
+    # end steps
+  # end deploy job
 
 
 # Orchestrate jobs using workflows
