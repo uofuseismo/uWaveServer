@@ -386,7 +386,7 @@ int main(int argc, char *argv[])
     databaseCredentials.setSchema("ynp");
 
     std::vector<std::unique_ptr<UWaveServer::Database::ReadOnlyClient>> clients;
-    auto client = std::make_unique<UWaveServer::Database::ReadOnlyClient> (databaseCredentials);
+    auto client = std::make_unique<UWaveServer::Database::ReadOnlyClient> (databaseCredentials, customLogger.logger);
     clients.push_back(std::move(client));
 
     crow::logger::setHandler(&customLogger);

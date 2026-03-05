@@ -5,6 +5,7 @@
 #include <string>
 #include <chrono>
 #include <set>
+#include <spdlog/spdlog.h>
 namespace UWaveServer
 {
  class Packet;
@@ -22,7 +23,8 @@ class WriteClient
 {
 public:
     /// @brief Constructs the client from the given postgres connection.
-    explicit WriteClient(const Credentials &credentials);
+    explicit WriteClient(const Credentials &credentials,
+                         std::shared_ptr<spdlog::logger> logger = nullptr);
 
     /// @brief Writes a packet to the database.
     /// @param[in] packet  A data packet with a network, station, channel,

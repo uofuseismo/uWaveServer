@@ -6,6 +6,7 @@
 #include <chrono>
 #include <map>
 #include <set>
+#include <spdlog/spdlog.h>
 namespace UWaveServer
 {
  class Packet;
@@ -22,7 +23,8 @@ class ReadOnlyClient
 {
 public:
     /// @brief Constructs the client from the given postgres connection.
-    explicit ReadOnlyClient(const Credentials &credentials);
+    explicit ReadOnlyClient(const Credentials &credentials,
+                            std::shared_ptr<spdlog::logger> logger = nullptr);
 
     /// @result True indicates the network, station, channel, and locationCode
     ///         packets are in the database.

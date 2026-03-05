@@ -128,7 +128,7 @@ public:
             }
             auto databaseClient 
                 = std::make_unique<UWaveServer::Database::WriteClient>
-                  (databaseCredentials);
+                  (databaseCredentials, mLogger);
             mDatabaseClients.push_back(std::move(databaseClient)); 
         }
 

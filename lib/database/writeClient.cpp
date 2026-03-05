@@ -86,8 +86,10 @@ void fill(const int nFill,
 class WriteClient::WriteClientImpl
 {
 public:
-    explicit WriteClientImpl(const Credentials &credentials) :
-        mCredentials(credentials)
+    WriteClientImpl(const Credentials &credentials,
+                    std::shared_ptr<spdlog::logger> logger) :
+        mCredentials(credentials),
+        mLogger(logger)
     {   
         if (mCredentials.isReadOnly())
         {
@@ -249,7 +251,6 @@ public:
 "SELECT identifier, data_table_name, channel, location_code FROM streams WHERE network = $1 AND station = $2"
 };
         pqxx::params queryParameters{network, station};
-        int identifier{-1};
         std::string tableName;
         {
         std::scoped_lock databaseLock(mDatabaseMutex);
@@ -664,12 +665,13 @@ R"""(
     void getRetentionDuration()
     {
     }
+    Credentials mCredentials;
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     mutable std::mutex mDatabaseMutex;
     mutable std::mutex mMutex;
     mutable std::map<std::string, std::pair<int, std::string>>
         mStreamToIdentifierAndTableName;
     mutable std::unique_ptr<pqxx::connection> mConnection{nullptr};
-    Credentials mCredentials;
     std::chrono::seconds mRetentionDuration{365*86400}; // TODO look this up from settings
     //    std::chrono::days mRetentionDuration{5}; // TODO
 #ifdef WITH_ZLIB
@@ -684,8 +686,9 @@ R"""(
 };
 
 /// Constructor
-WriteClient::WriteClient(const Credentials &credentials) :
-    pImpl(std::make_unique<WriteClientImpl> (credentials))
+WriteClient::WriteClient(const Credentials &credentials,
+                         std::shared_ptr<spdlog::logger> logger) :
+    pImpl(std::make_unique<WriteClientImpl> (credentials, logger))
 {
 }
 

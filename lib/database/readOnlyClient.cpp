@@ -11,6 +11,7 @@
 #endif
 #include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <pqxx/pqxx>
 #include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
@@ -176,7 +177,8 @@ std::vector<UWaveServer::Packet> unpackPackets(
     std::vector<std::basic_string<std::byte>> &packetByteArray,
     const std::vector<bool> packetIsLittleEndian,
     const std::vector<bool> packetIsCompressed,
-    const std::vector<int> packetSampleCount)
+    const std::vector<int> packetSampleCount,
+    spdlog::logger *logger)
 {
 #ifndef NDEBUG
     assert(packetStartTime.size() == packetSamplingRate.size());
@@ -209,9 +211,14 @@ std::vector<UWaveServer::Packet> unpackPackets(
         }
         catch (const std::exception &e)
         {
-            spdlog::warn("Failed to unpack packet for " 
-                       + ::toName(network, station, channel, locationCode) 
-                       + "; failed with " + std::string {e.what()});
+            if (logger)
+            {
+                auto packetName = ::toName(network, station, channel, locationCode);
+                SPDLOG_LOGGER_WARN(logger,
+                               "Failed to unpack packet for {}; failed with {}.",
+                               packetName,
+                               std::string {e.what()});
+            }
         }
     }
     std::sort(result.begin(), result.end(),
@@ -232,7 +239,8 @@ std::map<std::string, std::vector<UWaveServer::Packet>> unpackPackets(
     std::vector<std::basic_string<std::byte>> &packetByteArray,
     const std::vector<bool> packetIsLittleEndian,
     const std::vector<bool> packetIsCompressed,
-    const std::vector<int> packetSampleCount)
+    const std::vector<int> packetSampleCount,
+    spdlog::logger *logger)
 {
     std::map<std::string, std::vector<UWaveServer::Packet>> result;
     for (const auto &streamIdentifierPair : identifierToStreamIdentifiers)
@@ -290,14 +298,20 @@ std::map<std::string, std::vector<UWaveServer::Packet>> unpackPackets(
                                       matchingPacketByteArray,
                                       matchingPacketIsLittleEndian,
                                       matchingPacketIsCompressed,
-                                      matchingPacketSampleCount);
+                                      matchingPacketSampleCount,
+                                      logger);
                 result.insert_or_assign(name, std::move(matchingPackets));
             }
         }
         catch (const std::exception &e)
         {
-            spdlog::warn("Failed to unpack packets for " + name
-                       + " because " + std::string {e.what()});
+            if (logger)
+            {
+                SPDLOG_LOGGER_WARN(logger,
+                               "Failed to unpack packets for {} because {}",
+                               name,
+                               std::string {e.what()});
+            }
         }
     }
     return result;
@@ -320,9 +334,16 @@ std::string convertString(const std::string &s)
 class ReadOnlyClient::ReadOnlyClientImpl
 {
 public:
-    explicit ReadOnlyClientImpl(const Credentials &credentials) :
-        mCredentials(credentials)
+    ReadOnlyClientImpl(const Credentials &credentials, 
+                       std::shared_ptr<spdlog::logger> logger) :
+        mCredentials(credentials),
+        mLogger(logger)
     {   
+        if (mLogger == nullptr)
+        {
+           mLogger
+              = spdlog::stdout_color_mt("db-reader-client-console");
+        }
         mAmReadOnly = true;
         connect();
         initializeStreams();
@@ -357,7 +378,8 @@ public:
             auto schema = mCredentials.getSchema();
             if (!schema.empty())
             {
-                spdlog::debug("Updating search path to " + schema);
+                SPDLOG_LOGGER_DEBUG(mLogger,
+                                    "Adding {} to search path", schema);
                 std::string query = "SET search_path TO " + schema + ", public";
                 pqxx::work transaction(*mConnection);
                 transaction.exec(query);
@@ -371,8 +393,9 @@ public:
                                    + " at " + mCredentials.getHost());
         }
         }
-        spdlog::info("Connected to " + mCredentials.getDatabaseName()
-                   + " at " + mCredentials.getHost());
+        SPDLOG_LOGGER_INFO(mLogger, "Connected to {} at {}",
+                           mCredentials.getDatabaseName(),
+                           mCredentials.getHost());
     }
     void disconnect()
     {
@@ -400,11 +423,13 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn("Connection attempt failed with "
-                           + std::string {e.what()});
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Connection attempt failed with {}",
+                                   std::string {e.what()});
             }
-            spdlog::debug("Will attempt to reconnect in "
-                        + std::to_string(timeOut.count()) + " seconds");
+            SPDLOG_LOGGER_DEBUG(mLogger,
+                                "Will attempt to reconnect in {} seconds",
+                                mLogger.count());
             std::this_thread::sleep_for(timeOut);
         }
         throw std::runtime_error("Failed to connect to database");
@@ -414,7 +439,8 @@ public:
         // Ensure we're connected
         if (isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to getting streams...");
+            SPDLOG_LOGGER_INFO(mLogger,
+                         "Attempting to reconnect prior to getting streams...");
             reconnect(); // Throws
         }
         std::vector<std::pair<std::string, std::pair<int, std::string>>>
@@ -448,7 +474,7 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn(e.what());
+                SPDLOG_LOGGER_WARN(mLogger, "{}", std::string {e.what()});
             }
         }
         transaction.commit();
@@ -476,7 +502,6 @@ public:
 "SELECT identifier, data_table_name, channel, location_code FROM streams WHERE network = $1 AND station = $2"
 };
         pqxx::params queryParameters{network, station};
-        int identifier{-1};
         std::string tableName;
         {
         std::scoped_lock databaseLock(mDatabaseMutex);
@@ -491,7 +516,8 @@ public:
                 if (tableName.empty()){tableName = thisTableName;}
                 if (tableName != thisTableName)
                 {
-                    spdlog::warn("Channel mapped to inconsistent table");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                       "Channel mapped to inconsistent table");
                 }
                 auto channel = row[2].as<std::string> ();
                 auto locationCode = row[3].as<std::string> ();
@@ -502,7 +528,7 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn("Failed to unpack row");
+                SPDLOG_LOGGER_WARN(mLogger, "Failed to unpack row");
             }
         }
         transaction.commit();
@@ -575,8 +601,7 @@ public:
             tableName = row[1].as<std::string> ();
             if (queryResult.size() > 1)
             {
-                spdlog::warn("Multiple hit for " + name  
-                           + " in streams table - returning first");
+                SPDLOG_LOGGER_WARN(mLogger, "Multiple hit for {} in streams table - returning first", name);
             }
         }
         transaction.commit();
@@ -585,7 +610,7 @@ public:
         // so another writer doesn't swing by and ruin my day. 
         if (identifier ==-1)
         {
-            spdlog::debug("Stream " + name + " does not exist");
+            SPDLOG_LOGGER_DEBUG(mLogger, "Stream {} does not exist", name);
             return std::pair {identifier, tableName}; 
         }
         if (identifier >= 0)
@@ -625,8 +650,8 @@ public:
                 mStreamToIdentifierAndTableName.insert_or_assign(
                     stream.first, std::move(stream.second));
             }
-            spdlog::debug(std::to_string(mStreamToIdentifierAndTableName.size())
-                        + " streams in map");
+            SPDLOG_LOGGER_DEBUG(mLogger, "{} streams in map",
+                                mStreamToIdentifierAndTableName.size());
         }
     }
     bool contains(const std::string &network,
@@ -638,7 +663,7 @@ public:
         // Ensure we're connected
         if (!isConnected())
         {
-            spdlog::debug(
+            SPDLOG_LOGGER_DEBUG(mLogger,
                 "Attempting to reconnect prior to checking if stream exists..");
             reconnect(); // Throws
         }   
@@ -718,7 +743,8 @@ public:
         // Ensure we're connected
         if (!isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to query...");
+            SPDLOG_LOGGER_INFO(mLogger,
+                               "Attempting to reconnect prior to query...");
             reconnect(); // Throws
         }
         std::map<std::string, std::vector<Packet>> result;
@@ -750,7 +776,8 @@ public:
                         }
                         catch (const std::exception &e)
                         {
-                            spdlog::warn(e.what());
+                            SPDLOG_LOGGER_WARN(mLogger, "{}",
+                                               std::string {e.what()});
                         }
                     }
                 }
@@ -850,11 +877,12 @@ public:
                                     packetByteArray,
                                     packetIsLittleEndian,
                                     packetIsCompressed,
-                                    packetSampleCount);
+                                    packetSampleCount,
+                                    mLogger.get());
         }
         catch (const std::exception &e)
         {
-            spdlog::warn(e.what());
+            SPDLOG_LOGGER_WARN(mLogger, "{}", std::string {e.what()});
         } 
         return result;
     }
@@ -871,7 +899,8 @@ public:
         // Ensure we're connected
         if (!isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to query...");
+            SPDLOG_LOGGER_INFO(mLogger,
+                               "Attempting to reconnect prior to query...");
             reconnect(); // Throws
         }
         // Check the stream is there
@@ -944,8 +973,8 @@ public:
         double queryDuration
             = std::chrono::duration_cast<std::chrono::microseconds>
               (queryEndTime - queryStartTime).count()*1.e-6;
-        spdlog::debug("Query duration was "
-                    + std::to_string(queryDuration) + " (s)");
+        SPDLOG_LOGGER_DEBUG(mLogger, "Query duration was {} (s)",
+                            queryDuration);
         auto unpackStartTime = queryEndTime;
 #endif
         result = ::unpackPackets(network,
@@ -959,24 +988,26 @@ public:
                                  packetByteArray,
                                  packetIsLittleEndian,
                                  packetIsCompressed,
-                                 packetSampleCount);
+                                 packetSampleCount,
+                                 mLogger.get());
 #ifndef NDEBUG
         auto unpackEndTime = std::chrono::high_resolution_clock::now();
         double unpackDuration
             = std::chrono::duration_cast<std::chrono::microseconds>
               (unpackEndTime - unpackStartTime).count()*1.e-6;
-        spdlog::debug("Unpack duration was "
-                    + std::to_string(unpackDuration) + " (s)");
+        SPDLOG_LOGGER_DEBUG(mLogger,
+                            "Unpack duration was {} (s)",
+                            unpackDuration);
 #endif                                
         return result;
     }
-        
+    Credentials mCredentials;
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};    
     mutable std::mutex mDatabaseMutex;
     mutable std::mutex mMutex;
     mutable std::map<std::string, std::pair<int, std::string>>
          mStreamToIdentifierAndTableName;
     mutable std::unique_ptr<pqxx::connection> mConnection{nullptr};
-    Credentials mCredentials;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
     //    std::chrono::days mRetentionDuration{5};
     bool mAmReadOnly{true};
@@ -984,8 +1015,9 @@ public:
 };
 
 /// Constructor
-ReadOnlyClient::ReadOnlyClient(const Credentials &credentials) :
-    pImpl(std::make_unique<ReadOnlyClientImpl> (credentials))
+ReadOnlyClient::ReadOnlyClient(const Credentials &credentials,
+                               std::shared_ptr<spdlog::logger> logger) :
+    pImpl(std::make_unique<ReadOnlyClientImpl> (credentials, logger))
 {
 }
 
@@ -1021,7 +1053,7 @@ std::vector<UWaveServer::Packet> ReadOnlyClient::query(
     const std::chrono::microseconds &t1MuS) const
 {
     const double t0{t0MuS.count()*1.e-6};
-    const double t1{t0MuS.count()*1.e-6};
+    const double t1{t1MuS.count()*1.e-6};
     return query(network, station, channel, locationCode, t0, t1);
 }
 
@@ -1065,7 +1097,7 @@ ReadOnlyClient::queryAllChannelsForStation(
     const std::chrono::microseconds &t1MuS) const
 {
     const double t0{t0MuS.count()*1.e-6};
-    const double t1{t0MuS.count()*1.e-6};
+    const double t1{t1MuS.count()*1.e-6};
     return queryAllChannelsForStation(network, station, t0, t1);
 }
 
