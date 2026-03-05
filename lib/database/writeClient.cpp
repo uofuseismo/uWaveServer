@@ -11,6 +11,7 @@
 #endif
 #include <boost/algorithm/string.hpp>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <pqxx/pqxx>
 #include "uWaveServer/database/writeClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
@@ -30,6 +31,7 @@ using namespace UWaveServer::Database;
 namespace
 {
 
+/*
 std::string toTableName(const std::string &schema,
                         const std::string &network, const std::string &station)
 {
@@ -46,6 +48,7 @@ std::string toTableName(const Credentials &credentials,
 {
     return ::toTableName(credentials.getSchema(), network, station);
 }
+*/
 
 /// @brief Converts an input string to an upper-case string with no blanks.
 /// @param[in] s  The string to convert.
@@ -90,10 +93,16 @@ public:
                     std::shared_ptr<spdlog::logger> logger) :
         mCredentials(credentials),
         mLogger(logger)
-    {   
+    {
+        if (mLogger == nullptr)
+        {
+           mLogger
+              = spdlog::stdout_color_mt("db-writer-client-console");
+        }
         if (mCredentials.isReadOnly())
         {
-            spdlog::warn("Database client will open in read-write mode");
+            SPDLOG_LOGGER_WARN(mLogger,
+                               "Database client will open in read-write mode");
         }
         connect();
         initializeStreams();
@@ -129,7 +138,7 @@ public:
             auto schema = mCredentials.getSchema();
             if (!schema.empty())
             {
-                spdlog::debug("Updating search path to " + schema);
+                SPDLOG_LOGGER_DEBUG(mLogger, "Adding {} to search path", schema);
                 std::string query = "SET search_path TO " + schema;// + ", public";
                 pqxx::work transaction(*mConnection);
                 transaction.exec(query);
@@ -143,8 +152,10 @@ public:
                                    + " at " + mCredentials.getHost());
         }
         }
-        spdlog::info("Connected to " + mCredentials.getDatabaseName()
-                   + " at " + mCredentials.getHost());
+        SPDLOG_LOGGER_INFO(mLogger, 
+                           "Connected to {} at {}",
+                            mCredentials.getDatabaseName(),
+                            mCredentials.getHost());
     }
     void disconnect()
     {
@@ -172,11 +183,12 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn("Connection attempt failed with "
-                           + std::string {e.what()});
+                SPDLOG_LOGGER_WARN(mLogger, "Connection attempt failed with {}",
+                                   std::string {e.what()});
             }
-            spdlog::debug("Will attempt to reconnect in "
-                        + std::to_string(timeOut.count()) + " seconds");
+            SPDLOG_LOGGER_DEBUG(mLogger,
+                                "Will attempt to reconnect in {} seconds",
+                                timeOut.count());
             std::this_thread::sleep_for(timeOut);
         }
         throw std::runtime_error("Failed to connect to database");
@@ -186,7 +198,8 @@ public:
         // Ensure we're connected
         if (isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to getting streams...");
+            SPDLOG_LOGGER_INFO(mLogger,
+                         "Attempting to reconnect prior to getting streams...");
             reconnect(); // Throws
         }
         //auto session
@@ -223,7 +236,7 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn(e.what());
+                SPDLOG_LOGGER_WARN(mLogger, "{}", std::string {e.what()});
             }
         }
         transaction.commit();
@@ -265,7 +278,8 @@ public:
                 if (tableName.empty()){tableName = thisTableName;}
                 if (tableName != thisTableName)
                 {
-                    spdlog::warn("Channel mapped to inconsistent table");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                       "Channel mapped to inconsistent table");
                 }
                 auto channel = row[2].as<std::string> ();
                 auto locationCode = row[3].as<std::string> ();
@@ -276,7 +290,7 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn("Failed to unpack row");
+                SPDLOG_LOGGER_WARN(mLogger, "Failed to unpack row");
             }
         }
         transaction.commit();
@@ -348,8 +362,9 @@ public:
             tableName = row[1].as<std::string> ();
             if (queryResult.size() > 1)
             {
-                spdlog::warn("Multiple hit for " + name  
-                           + " in streams table - returning first");
+                SPDLOG_LOGGER_WARN(mLogger,
+                  "Multiple hit for {} in streams table - returning first",
+                                   name);
             }
         }
         transaction.commit();
@@ -359,7 +374,7 @@ public:
         {
             if (!addIfNotExists)
             {
-                spdlog::debug("Stream " + name + " does not exist");
+                SPDLOG_LOGGER_DEBUG(mLogger, "Stream {} does not exist", name);
                 return std::pair {identifier, tableName}; 
             }
             // Add it the stream
@@ -472,13 +487,12 @@ R"""(
                 tableName = insertRow[1].as<std::string> ();
                 if (insertResult.size() > 1)
                 {
-                    spdlog::warn("Multiple inserts for " + name  
-                              + " in streams table - returning first");
+                    SPDLOG_LOGGER_WARN(mLogger, "Multiple inserts for {} in streams table - returning first", name);
                 }
             }
             else
             {
-                spdlog::warn("Insert into streams failed for " + name);
+                SPDLOG_LOGGER_WARN(mLogger, "Insert into streams failed for {}", name);
             }
             transaction.exec(createTable); 
             transaction.exec(createHyperTable);
@@ -528,8 +542,9 @@ R"""(
                 mStreamToIdentifierAndTableName.insert_or_assign(
                     stream.first, std::move(stream.second));
             }
-            spdlog::debug(std::to_string(mStreamToIdentifierAndTableName.size())
-                        + " streams in map");
+            SPDLOG_LOGGER_DEBUG(mLogger,
+                                "{} streams in map",
+                                mStreamToIdentifierAndTableName.size());
         }
     }
     bool contains(const std::string &network,
@@ -540,7 +555,7 @@ R"""(
         // Ensure we're connected
         if (!isConnected())
         {
-            spdlog::debug(
+            SPDLOG_LOGGER_DEBUG(mLogger,
                 "Attempting to reconnect prior to checking if stream exists..");
             reconnect(); // Throws
         }   
@@ -561,13 +576,14 @@ R"""(
     {
         if (packet.empty())
         {
-            spdlog::warn("Packet has no data - returning");
+            SPDLOG_LOGGER_WARN(mLogger, "Packet has no data - returning");
             return;
         }
         // Ensure we're connected
         if (!isConnected())
         {
-            spdlog::info("Attempting to reconnect prior to insert...");
+            SPDLOG_LOGGER_INFO(mLogger,
+                               "Attempting to reconnect prior to insert...");
             reconnect(); // Will throw
         }
         // Get the stream identifier
@@ -740,7 +756,8 @@ void WriteClient::write(const UWaveServer::Packet &packet)
     }
     if (packet.empty())
     {
-        spdlog::warn("Packet has no data - returning");
+        SPDLOG_LOGGER_WARN(pImpl->mLogger,
+                           "Packet has no data - returning");
         return;
     }
     if (packet.getDataType() == UWaveServer::Packet::DataType::Unknown)
@@ -757,7 +774,9 @@ void WriteClient::write(const UWaveServer::Packet &packet)
           (pImpl->mRetentionDuration);
     if (endTime < oldestAllowableTime)
     {
-        spdlog::warn(::toName(packet) + "'s data has expired; skipping");
+        SPDLOG_LOGGER_WARN(pImpl->mLogger,
+                           "{}'s data has expired; skipping",
+                           ::toName(packet));
         return;
     } 
     // Try to write it 

@@ -341,8 +341,8 @@ public:
     {   
         if (mLogger == nullptr)
         {
-           mLogger
-              = spdlog::stdout_color_mt("db-reader-client-console");
+            mLogger
+               = spdlog::stdout_color_mt("db-reader-client-console");
         }
         mAmReadOnly = true;
         connect();
