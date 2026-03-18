@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include "uWaveServer/dataClient/grpc.hpp"
 #include "uWaveServer/dataClient/grpcOptions.hpp"
+#include "uWaveServer/packet.hpp"
 #include "uDataPacketServiceAPI/v1/broadcast.grpc.pb.h"
 
 using namespace UWaveServer::DataClient;
@@ -79,22 +80,21 @@ class AsyncPacketSubscriber :
     public grpc::ClientReadReactor<UDataPacketServiceAPI::V1::Packet>
 {
 public:
-/*
     AsyncPacketSubscriber
     (
         UDataPacketServiceAPI::V1::Broadcast::Stub *stub,
-        const UDataPacketImportAPI::V1::SubscriptionRequest &request,
-        std::function<void (UDataPacketImportAPI::V1::Packet &&)> &addPacketCallback,
+        const UDataPacketServiceAPI::V1::SubscriptionRequest &subscriptionRequest,
+        std::function<void (UWaveServer::Packet &&)> &addPacketCallback,
         std::shared_ptr<spdlog::logger> logger,
         std::atomic<bool> *keepRunning
     ) :
-        mRequest(request),
+        mSubscriptionRequest(subscriptionRequest),
         mAddPacketCallback(addPacketCallback),
         mLogger(logger),
         mKeepRunning(keepRunning)
     {
         mClientContext.set_wait_for_ready(false); // Fail immediately if server isn't there
-        stub->async()->Subscribe(&mClientContext, &mRequest, this);
+        stub->async()->Subscribe(&mClientContext, &mSubscriptionRequest, this);
         StartRead(&mPacket);
         StartCall();
     }
@@ -106,14 +106,15 @@ public:
             mHadSuccessfulRead = true;
             try
             {
-                auto copy = mPacket;
+                auto copy = UWaveServer::fromGRPC(mPacket);
                 mAddPacketCallback(std::move(copy));
             }
             catch (const std::exception &e)
             {
-                SPDLOG_LOGGER_ERROR(mLogger,
-                                    "Failed to add packet to callback because {}",
-                                    std::string {e.what()});
+                SPDLOG_LOGGER_ERROR(
+                    mLogger,
+                    "Failed to add packet to callback because {}",
+                    std::string {e.what()});
             }
             if (!mKeepRunning->load())
             {
@@ -122,11 +123,11 @@ public:
             }
             StartRead(&mPacket);
         }
-        else
+        else // Not okay
         {
+            // Quitting anyway?
             if (!mKeepRunning->load())
             {
-                //Finish(grpc::Status::OK);
                 mClientContext.TryCancel();
             }
         }
@@ -153,13 +154,15 @@ public:
         SPDLOG_LOGGER_DEBUG(mLogger, "In destructor");
     }
 #endif
-*/
+
+    AsyncPacketSubscriber() = delete;
+
 private:
     grpc::ClientContext mClientContext;
-    UDataPacketServiceAPI::V1::SubscriptionRequest mRequest;
+    UDataPacketServiceAPI::V1::SubscriptionRequest mSubscriptionRequest;
     std::function
     <
-        void (UDataPacketServiceAPI::V1::Packet &&packet)
+        void (UWaveServer::Packet &&packet)
     > mAddPacketCallback;
     std::shared_ptr<spdlog::logger> mLogger;
     std::mutex mMutex;
@@ -176,5 +179,58 @@ private:
 class GRPC::GRPCImpl
 {
 public:
-    GRPCOptions mOptions; 
+ 
+    ~GRPCImpl()
+    {
+        stop();
+    }
+
+    void acquirePackets()
+    {
+#ifndef NDEBUG
+        assert(mLogger != nullptr);
+#endif
+        //auto reconnectSchedule = mOptions.getReconnectSchedule();
+        std::vector<std::chrono::seconds> reconnectSchedule{ std::chrono::seconds{0}, std::chrono::seconds {1}, std::chrono::seconds {10} };
+        auto nReconnect = static_cast<int> (reconnectSchedule.size());
+        for (int kReconnect =-1; kReconnect < nReconnect; ++kReconnect)
+        {
+            if (!mKeepRunning.load()){break;} 
+            if (kReconnect >= 0)
+            {
+                SPDLOG_LOGGER_INFO(mLogger,
+                                   "Will attempt to reconnect in {} s",
+                                   reconnectSchedule.at(kReconnect).count());
+                std::unique_lock<std::mutex> lock(mShutdownMutex);
+                mShutdownCondition.wait_for(lock,
+                                            reconnectSchedule.at(kReconnect),
+                                            [this]
+                                            {
+                                                return mShutdownRequested;
+                                            });
+                lock.unlock();
+                if (!mKeepRunning.load()){break;}
+            }
+            // Create channel
+            auto channel = ::createChannel(mGRPCOptions, mLogger.get());
+            auto stub = UDataPacketServiceAPI::V1::Broadcast::NewStub(channel);
+            UDataPacketServiceAPI::V1::SubscriptionRequest request;
+            auto subscriberIdentifier = std::string {"uWaveServer"}; // TODO mOptions.getIdentifier();
+
+        }
+    }
+
+    void stop()
+    {
+        mKeepRunning.store(false);
+    }
+
+    GRPCOptions mGRPCOptions; 
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
+    mutable std::mutex mShutdownMutex;
+    std::condition_variable mShutdownCondition;
+    std::atomic<bool> mKeepRunning{true};
+    bool mShutdownRequested{false};
 };
+
+GRPC::~GRPC() = default;

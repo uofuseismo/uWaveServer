@@ -5,6 +5,10 @@
 #include <vector>
 #include <memory>
 #include <chrono>
+namespace UDataPacketServiceAPI::V1
+{
+ class Packet;
+}
 namespace UWaveServer
 {
 /// @name Packet "packet.hpp" "uWaveServer/packet.hpp"
@@ -148,5 +152,7 @@ private:
 /// @param[in,out] lhs  On exit this will contain the information in rhs.
 /// @param[in,out] rhs  On exit this will contain the information in lhs.
 void swap(Packet &lhs, Packet &rhs);
+/// @brief Creates a packet from the gRPC packet.
+[[nodiscard]] Packet fromGRPC(const UDataPacketServiceAPI::V1::Packet &packet);
 }
 #endif

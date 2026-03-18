@@ -287,6 +287,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    target_link_libraries(unitTests
                          PRIVATE
                             uWaveServer::libuWaveServer
+                            gRPC::grpc gRPC::grpc++ 
                             spdlog::spdlog_header_only
                             mseed::mseed_static
                             ZLIB::ZLIB

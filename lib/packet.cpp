@@ -1,4 +1,5 @@
 #include <iostream>
+#include <bit>
 #include <vector>
 #include <chrono>
 #include <cmath>
@@ -6,8 +7,10 @@
 #ifndef NDEBUG
 #include <cassert>
 #endif
+#include <google/protobuf/util/time_util.h>
 #include <libmseed.h>
 #include "uWaveServer/packet.hpp"
+#include "uDataPacketServiceAPI/v1/packet.pb.h"
 
 using namespace UWaveServer;
 
@@ -60,14 +63,14 @@ std::string toMiniSEED(const std::vector<Packet> &packets,
     std::string outputBuffer;
     if (packets.empty()){return outputBuffer;}
     auto maxEncodingInteger = ::encodingInteger(packets.at(0).getDataType());
-    bool variableData{false};
+    //bool variableData{false};
     for (int i = 1; i < static_cast<int> (packets.size()); ++i)
     {
         auto encodingInteger = ::encodingInteger(packets.at(i).getDataType());
-        if (encodingInteger != maxEncodingInteger)
-        {
-            variableData = true;
-        }
+        //if (encodingInteger != maxEncodingInteger)
+        //{
+        //    variableData = true;
+        //}
         encodingInteger = std::max(encodingInteger, maxEncodingInteger);
     }
  
@@ -157,6 +160,62 @@ std::string toMiniSEED(const std::vector<Packet> &packets,
     }
     mstl3_free(&msTraceList, 1);
     return outputBuffer; 
+}
+
+template<typename T>
+std::vector<T> unpack(const std::string &data, const int nSamples,
+                      const bool swapBytes)
+{
+    constexpr auto dataTypeSize = sizeof(T);
+    std::vector<T> result;
+    if (nSamples < 1){return result;}
+    if (static_cast<size_t> (nSamples)*dataTypeSize != data.size())
+    {   
+        throw std::invalid_argument("Unexpected data size");
+    }   
+    result.resize(nSamples);
+    // Pack it up
+    union CharacterValueUnion
+    {   
+        unsigned char cArray[dataTypeSize];
+        T value;
+    };  
+    CharacterValueUnion cvUnion;
+    if (!swapBytes)
+    {   
+        for (int i = 0; i < nSamples; ++i)
+        {
+            cvUnion.value = data[i];
+            auto i1 = i*dataTypeSize;
+            auto i2 = i1 + dataTypeSize;
+            std::copy(data.data() + i1, data.data() + i2, 
+                      cvUnion.cArray);
+            result[i] = cvUnion.value;
+        }
+    }   
+    else
+    {   
+        for (int i = 0; i < nSamples; ++i)
+        {
+            cvUnion.value = data[i];
+            auto i1 = i*dataTypeSize;
+            auto i2 = i1 + dataTypeSize;
+            std::reverse_copy(data.data() + i1, data.data() + i2, 
+                              cvUnion.cArray);
+            result[i] = cvUnion.value;
+        }
+    }   
+    return result;
+}
+
+template<typename T>
+std::vector<T> unpack(const std::string &data, const int nSamples)
+{
+    const bool swapBytes
+    {   
+        std::endian::native == std::endian::little ? false : true
+    };  
+    return unpack<T>(data, nSamples, swapBytes);
 }
 
 }
@@ -756,6 +815,77 @@ void Packet::trim(const std::chrono::microseconds &startTime,
 void UWaveServer::swap(UWaveServer::Packet &lhs, UWaveServer::Packet &rhs)
 {
     std::swap(lhs.pImpl, rhs.pImpl);
+}
+
+/// Create a packet
+UWaveServer::Packet UWaveServer::fromGRPC(
+    const UDataPacketServiceAPI::V1::Packet &packet)
+{
+    // Check list
+    //  1. sampling rate - check
+    //  2. SNCL - check
+    //  3. data - check
+    //  4. sampling rate - check
+    Packet result;
+
+    // These throw quick
+    auto nSamples = packet.number_of_samples();
+    if (nSamples < 1)
+    {
+        throw std::invalid_argument("No data in packet");
+    }   
+    result.setSamplingRate(packet.sampling_rate());
+
+    const auto &streamIdentifier = packet.stream_identifier();
+
+    result.setNetwork(streamIdentifier.network());
+    result.setStation(streamIdentifier.station());
+    result.setChannel(streamIdentifier.channel());
+    result.setLocationCode(streamIdentifier.location_code());
+
+    // Start time
+    auto iStartTimeMuS
+        = google::protobuf::util::TimeUtil::TimestampToMicroseconds(
+            packet.start_time());
+    result.setStartTime(std::chrono::microseconds {iStartTimeMuS});
+
+    // Unpack data
+    auto dataType = packet.data_type();
+    if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_INTEGER_32)
+    {
+        auto samples = ::unpack<int32_t> (packet.data(), nSamples);
+        result.setData(std::move(samples));
+    }
+    else if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_INTEGER_64)
+    {
+        auto samples = ::unpack<int64_t> (packet.data(), nSamples);
+        result.setData(std::move(samples));
+    }
+    else if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_DOUBLE)
+    {
+        auto samples = ::unpack<double> (packet.data(), nSamples);
+        result.setData(std::move(samples));
+    }
+    else if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_FLOAT)
+    {
+        auto samples = ::unpack<float> (packet.data(), nSamples);
+        result.setData(std::move(samples));
+    }
+    else if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_TEXT)
+    {
+        std::vector<char> data(nSamples);
+        std::copy(packet.data().begin(), packet.data().end(), data.begin());
+        result.setData(std::move(data));
+    }
+    else
+    {
+        if (dataType == UDataPacketServiceAPI::V1::DATA_TYPE_UNKNOWN)
+        {
+            throw std::invalid_argument("Cannot process unknown data type");
+        }
+        throw std::invalid_argument("Unhandled data type");
+    }
+    return result;
 }
 
 

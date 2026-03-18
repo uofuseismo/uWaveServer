@@ -15,7 +15,7 @@ class GRPC : public IDataClient
 {
 public:
     GRPC(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
-             const GRPCOptions &options);
+         const GRPCOptions &options);
     /// @brief Destructor.
     ~GRPC() override;
     /// @brief Connects to the data source.

@@ -5,14 +5,56 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <google/protobuf/util/time_util.h>
 #include "uWaveServer/packet.hpp"
+#include "uDataPacketServiceAPI/v1/packet.pb.h"
 #include "private/toMiniSEED.hpp"
 #include "private/toJSON.hpp"
 #include "unpackMiniSEED3.hpp"
+
+namespace
+{
+template<typename T>
+std::string pack(const T *data, const int nSamples, const bool swapBytes)
+{
+    constexpr auto dataTypeSize = sizeof(T);
+    std::string result;
+    if (nSamples < 1){return result;}
+    result.resize(dataTypeSize*nSamples);
+    // Pack it up
+    union CharacterValueUnion
+    {   
+        unsigned char cArray[dataTypeSize];
+        T value;
+    };  
+    CharacterValueUnion cvUnion;
+    if (!swapBytes)
+    {   
+        for (int i = 0; i < nSamples; ++i)
+        {
+            cvUnion.value = data[i];
+            std::copy(cvUnion.cArray, cvUnion.cArray + dataTypeSize,
+                      result.data() + dataTypeSize*i);
+        }
+    }   
+    else
+    {   
+        for (int i = 0; i < nSamples; ++i)
+        {
+            cvUnion.value = data[i];
+            std::reverse_copy(cvUnion.cArray, cvUnion.cArray + dataTypeSize,
+                              result.data() + dataTypeSize*i);
+        }
+    }   
+    return result;
+}
+
+}
 
 TEST_CASE("uWaveServer::Packet", "[class]")
 {
@@ -176,6 +218,146 @@ TEST_CASE("uWaveServer::Packet", "[class]")
             CHECK(dataBack.at(i) == data.at(nInStart - 1 + i));
         }
     }
+}
+
+TEST_CASE("UWaveServer::Packet", "[gRPC]")
+{
+    const std::string network{"UU"};
+    const std::string station{"SVWY"};
+    const std::string channel{"HHZ"};
+    const std::string locationCode{"01"};
+    const double samplingRate{100};
+    constexpr std::chrono::microseconds startTime{123454321};
+
+    const int nSamples{10};
+
+    UDataPacketServiceAPI::V1::StreamIdentifier identifier;
+    identifier.set_network(network);
+    identifier.set_station(station);
+    identifier.set_channel(channel);
+    identifier.set_location_code(locationCode);
+
+    UDataPacketServiceAPI::V1::Packet packet;
+    *packet.mutable_stream_identifier() = identifier;
+    packet.set_sampling_rate(samplingRate);
+    packet.set_number_of_samples(nSamples);
+    *packet.mutable_start_time()
+        = google::protobuf::util::TimeUtil::MicrosecondsToTimestamp(
+            startTime.count());
+ 
+    const bool swapBytes
+    {   
+        std::endian::native == std::endian::little ? false : true
+    };  
+    SECTION("int32")
+    {
+        std::vector<int> data(nSamples);
+        std::iota(data.begin(), data.end(), 0); 
+        auto packedData = ::pack(data.data(), nSamples, swapBytes); 
+        *packet.mutable_data() = packedData;
+        packet.set_data_type(UDataPacketServiceAPI::V1::DATA_TYPE_INTEGER_32);
+        auto result = UWaveServer::fromGRPC(packet);
+
+        REQUIRE(result.getNetwork() == network);
+        REQUIRE(result.getStation() == station);
+        REQUIRE(result.getChannel() == channel);
+        REQUIRE(result.getLocationCode() == locationCode);
+        auto dataBack = result.getData<int> ();
+        REQUIRE(result.getStartTime() == startTime);
+        REQUIRE(std::abs(result.getSamplingRate() - samplingRate) < 1.e-14);
+        REQUIRE(static_cast<int> (dataBack.size()) == nSamples);
+        for (int i = 0; i < nSamples; ++i)
+        {
+            REQUIRE(dataBack.at(i) == data.at(i));
+        }
+    }
+    SECTION("int64")
+    {   
+        std::vector<int64_t> data(nSamples);
+        std::iota(data.begin(), data.end(), 0); 
+        auto packedData = ::pack(data.data(), nSamples, swapBytes); 
+        *packet.mutable_data() = packedData;
+        packet.set_data_type(UDataPacketServiceAPI::V1::DATA_TYPE_INTEGER_64);
+        auto result = UWaveServer::fromGRPC(packet);
+
+        REQUIRE(result.getNetwork() == network);
+        REQUIRE(result.getStation() == station);
+        REQUIRE(result.getChannel() == channel);
+        REQUIRE(result.getLocationCode() == locationCode);
+        auto dataBack = result.getData<int64_t> (); 
+        REQUIRE(result.getStartTime() == startTime);
+        REQUIRE(std::abs(result.getSamplingRate() - samplingRate) < 1.e-14);
+        REQUIRE(static_cast<int> (dataBack.size()) == nSamples);
+        for (int i = 0; i < nSamples; ++i)
+        {
+            REQUIRE(dataBack.at(i) == data.at(i));
+        }
+    }   
+    SECTION("float")
+    {   
+        std::vector<float> data(nSamples);
+        std::iota(data.begin(), data.end(), 0.0f); 
+        auto packedData = ::pack(data.data(), nSamples, swapBytes); 
+        *packet.mutable_data() = packedData;
+        packet.set_data_type(UDataPacketServiceAPI::V1::DATA_TYPE_FLOAT);
+        auto result = UWaveServer::fromGRPC(packet);
+
+        REQUIRE(result.getNetwork() == network);
+        REQUIRE(result.getStation() == station);
+        REQUIRE(result.getChannel() == channel);
+        REQUIRE(result.getLocationCode() == locationCode);
+        auto dataBack = result.getData<float> (); 
+        REQUIRE(result.getStartTime() == startTime);
+        REQUIRE(std::abs(result.getSamplingRate() - samplingRate) < 1.e-14);
+        REQUIRE(static_cast<int> (dataBack.size()) == nSamples);
+        for (int i = 0; i < nSamples; ++i)
+        {
+            REQUIRE(std::abs(dataBack.at(i) - data.at(i)) < 1.e-7);
+        }
+    }
+    SECTION("double")
+    {   
+        std::vector<double> data(nSamples);
+        std::iota(data.begin(), data.end(), 0.0f); 
+        auto packedData = ::pack(data.data(), nSamples, swapBytes); 
+        *packet.mutable_data() = packedData;
+        packet.set_data_type(UDataPacketServiceAPI::V1::DATA_TYPE_DOUBLE);
+        auto result = UWaveServer::fromGRPC(packet);
+
+        REQUIRE(result.getNetwork() == network);
+        REQUIRE(result.getStation() == station);
+        REQUIRE(result.getChannel() == channel);
+        REQUIRE(result.getLocationCode() == locationCode);
+        auto dataBack = result.getData<double> (); 
+        REQUIRE(result.getStartTime() == startTime);
+        REQUIRE(std::abs(result.getSamplingRate() - samplingRate) < 1.e-14);
+        REQUIRE(static_cast<int> (dataBack.size()) == nSamples);
+        for (int i = 0; i < nSamples; ++i)
+        {
+            REQUIRE(std::abs(dataBack.at(i) - data.at(i)) < 1.e-14);
+        }
+    }   
+
+    SECTION("text")
+    {   
+        std::string data{"1234567890"};
+        *packet.mutable_data() = data;
+        packet.set_data_type(UDataPacketServiceAPI::V1::DATA_TYPE_TEXT);
+        auto result = UWaveServer::fromGRPC(packet);
+
+        REQUIRE(result.getNetwork() == network);
+        REQUIRE(result.getStation() == station);
+        REQUIRE(result.getChannel() == channel);
+        REQUIRE(result.getLocationCode() == locationCode);
+        auto dataBack = result.getData<float> (); 
+        REQUIRE(result.getStartTime() == startTime);
+        REQUIRE(std::abs(result.getSamplingRate() - samplingRate) < 1.e-14);
+        REQUIRE(static_cast<int> (dataBack.size()) == nSamples);
+        for (int i = 0; i < nSamples; ++i)
+        {
+            REQUIRE(dataBack.at(i) == data.at(i));
+        }
+    }   
 }
 
 TEST_CASE("UWaveServer::Packet", "[miniSEED]")
