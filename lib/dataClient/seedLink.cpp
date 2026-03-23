@@ -513,8 +513,8 @@ public:
 /// Constructor
 SEEDLink::SEEDLink(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
                    const SEEDLinkOptions &options) :
-    pImpl(std::make_unique<SEEDLinkImpl> ()),
-    IDataClient(callback)
+    IDataClient(callback),
+    pImpl(std::make_unique<SEEDLinkImpl> ())
 {
     pImpl->mAddPacketFunction
         = std::bind(&IDataClient::addPacket, this,

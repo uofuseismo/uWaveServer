@@ -9,6 +9,8 @@
 #include <cassert>
 #endif
 #include <boost/circular_buffer.hpp>
+#include <boost/hash2/xxhash.hpp>
+#include <boost/hash2/hash_append.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/testDuplicatePacket.hpp"
@@ -18,6 +20,18 @@ using namespace UWaveServer;
 
 namespace
 {
+
+static_assert(std::is_same<boost::hash2::xxhash_64::result_type, uint64_t>::value,
+              "xxhash64 result is not uint64_t");
+
+template<typename T>
+uint64_t toHash(const T *data, const int nSamples)
+{
+     boost::hash2::xxhash_64 hashFunction;
+     boost::hash2::hash_append_range(hashFunction, {},
+                                     data + 0, data + nSamples);
+     return hashFunction.result();
+}
 
 struct DataPacketHeader
 {

@@ -273,7 +273,8 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    set(TEST_SRC 
        testing/pack.cpp
        testing/packet.cpp
-       testing/testPacket.cpp)
+       testing/testPacket.cpp
+       testing/seedLink.cpp)
    if (${gRPC_FOUND})
       set(TEST_SRC ${TEST_SRC}
           testing/grpc.cpp)

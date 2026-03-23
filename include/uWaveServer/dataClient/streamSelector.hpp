@@ -53,6 +53,17 @@ public:
     /// @result The desired station name.
     [[nodiscard]] std::string getStation() const noexcept;
 
+    /// @brief Sets the desired channels and location codes.
+    /// @param[in] channel  The channel selector.  For example, this can be
+    ///                     BH? to read all BH[1,2,Z] channels.  Or this
+    ///                     can be HHZ to read only high-samplerate, high-gain
+    ///                     vertical channels.  Or, if this is blank then
+    ///                     all channels will be selected.  Or, this can be
+    ///                     !L to exclude LCQ and LEP channels.  
+    /// @param[in] type     The data type to be returned.
+    /// @note This will select all channel codes.
+    void setSelector(const std::string &channel,
+                     const Type type = Type::Data);
     /// @brief Sets the desired channels.
     /// @param[in] channel  The channel selector.  For example, this can be
     ///                     BH? to read all BH[1,2,Z] channels.  Or this
@@ -79,6 +90,9 @@ public:
     /// @brief Destructor.
     ~StreamSelector();
     /// @}
+
+    /// @brief Creates the stream selector from a string like UU FORK HH? 01 D.
+    [[nodiscard]] static StreamSelector fromString(const std::string &selectorString);
 
     /// @name Operators
     /// @{
