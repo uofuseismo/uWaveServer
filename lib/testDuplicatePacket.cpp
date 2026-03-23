@@ -33,6 +33,46 @@ uint64_t toHash(const T *data, const int nSamples)
      return hashFunction.result();
 }
 
+uint64_t toHash(const Packet &packet, const int nSamples)
+{
+    constexpr uint64_t zero{0};
+    if (nSamples == 0){return zero;}
+    auto dataType = packet.getDataType();
+    if (dataType == Packet::DataType::Integer32)
+    {
+        auto dPtr = reinterpret_cast<const int32_t *> (packet.data());
+        return ::toHash(dPtr, nSamples);
+    }
+    else if (dataType == Packet::DataType::Float)
+    {
+        auto dPtr = reinterpret_cast<const float *> (packet.data());
+        return ::toHash(dPtr, nSamples);
+    }
+    else if (dataType == Packet::DataType::Double)
+    {
+        auto dPtr = reinterpret_cast<const double *> (packet.data());
+        return ::toHash(dPtr, nSamples);
+    }
+    else if (dataType == Packet::DataType::Integer64)
+    {
+        auto dPtr = reinterpret_cast<const int64_t *> (packet.data());
+        return ::toHash(dPtr, nSamples);
+    }
+    else if (dataType == Packet::DataType::Text)
+    {
+        auto dPtr = reinterpret_cast<const char *> (packet.data());
+        return ::toHash(dPtr, nSamples);
+    }
+    else if (dataType == Packet::DataType::Unknown)
+    {
+        return zero;
+    }
+    else
+    {
+        throw std::runtime_error("Unhandled data type");
+    } 
+}
+
 struct DataPacketHeader
 {
 public:
@@ -68,6 +108,14 @@ public:
         {
             throw std::invalid_argument("No samples in packet");
         }
+        try
+        {
+            dataHash = ::toHash(packet, nSamples);
+        }
+        catch (const std::exception &e)
+        {
+            dataHash = 0;
+        } 
     } 
     bool operator<(const ::DataPacketHeader &rhs) const
     {
@@ -87,6 +135,10 @@ public:
             //return false;
         }
         if (rhs.nSamples != nSamples){return false;}
+        if (rhs.dataHash != dataHash)
+        {
+            return false;
+        }
         auto dStartTime = std::abs(rhs.startTime.count() - startTime.count());
         if (samplingRate < 105)
         {
@@ -112,6 +164,7 @@ public:
     std::string name; // Packet name NETWORK.STATION.CHANNEL.LOCATION
     std::chrono::microseconds startTime{0}; // UTC time of first sample
     std::chrono::microseconds endTime{0}; // UTC time of last sample
+    uint64_t dataHash{0};
     // Typically `observed' sampling rates wobble around a nominal sampling rate
     int samplingRate{100};
     int nSamples{0}; // Number of samples in packet
@@ -220,6 +273,7 @@ public:
             = std::find(circularBufferIndex->second.begin(),
                         circularBufferIndex->second.end(),
                         header);
+        // Matched it
         if (headerIndex != circularBufferIndex->second.end())
         {
             if (mLogBadData)
@@ -269,11 +323,24 @@ public:
         // The packet is old.  We have to check for a GPS slip.
         for (const auto &streamHeader : circularBufferIndex->second)
         {
+            // Looks like a timing slip to me
             if ((header.startTime >= streamHeader.startTime &&
                  header.startTime <= streamHeader.endTime) ||
                 (header.endTime >= streamHeader.startTime &&
                  header.endTime <= streamHeader.endTime))
             {
+                // This is a really exotic failure . This is like a bit flip
+                // in transit or something.
+                if (header.startTime == streamHeader.startTime &&
+                    header.endTime == streamHeader.endTime &&
+                    header.nSamples == streamHeader.nSamples &&
+                    header.samplingRate == streamHeader.samplingRate &&
+                    header.dataHash != streamHeader.dataHash)
+                {
+                    spdlog::warn("Data perturbation detected for: "
+                               + header.name);
+                    return false;
+                }
                 //std::cout << std::setprecision(16) << header.name << " " << streamHeader.name << " | " << header.startTime.count()*1.e-6 << " " << streamHeader.startTime.count()*1.e-6 << " | " 
                 //<< header.endTime.count()*1.e-6 << " " << streamHeader.endTime.count()*1.e-6 << std::endl;
                 if (mLogBadData)

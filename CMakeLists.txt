@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(uWaveServer VERSION 0.3.0 LANGUAGES CXX)
+project(uWaveServer VERSION 0.4.0 LANGUAGES CXX)
 enable_testing()
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 

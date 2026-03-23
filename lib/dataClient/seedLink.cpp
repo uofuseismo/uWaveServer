@@ -25,10 +25,12 @@ using namespace UWaveServer::DataClient;
 namespace
 {
 
+/*
 void seedLinkLogger(const char *message)
 {
     spdlog::debug(std::string {message});
 }
+*/
 
 /// @brief Unpacks a miniSEED record.
 [[nodiscard]]

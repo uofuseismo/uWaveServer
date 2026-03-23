@@ -166,6 +166,31 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
         }
     }
 
+    SECTION("Every other is perturbed data")
+    {
+        const std::chrono::seconds logBadDataInterval{-1};
+        const int circularBufferSize{15};
+
+        UWaveServer::TestDuplicatePacket
+            tester{circularBufferSize, logBadDataInterval}; 
+        int cumulativeSamples{0}; 
+        int nExamples = 2*circularBufferSize;
+        for (int iPacket = 0; iPacket < nExamples; iPacket++)
+        {
+            auto packetStartTime = startTime + cumulativeSamples/samplingRate;
+            std::vector<int> data(uniformDistribution(generator), 0); 
+            cumulativeSamples
+                = cumulativeSamples + static_cast<int> (data.size()); 
+            packet.setStartTime(packetStartTime);
+            packet.setData(data);
+            CHECK(tester.allow(packet));
+            // Pretend there's some wonky telemetry problem
+            data[0] = data[0] + 1;
+            packet.setData(data);
+            CHECK(!tester.allow(packet));
+        }
+    }
+
     SECTION("Out of order with duplicates")
     {
         const std::chrono::seconds logBadDataInterval{-1};
