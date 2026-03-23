@@ -174,11 +174,6 @@ if (${gRPC_FOUND})
                     )
    target_link_libraries(libuWaveServer PRIVATE gRPC::grpc gRPC::grpc++)
 endif()
-#if (${Earthworm_FOUND})
-#   target_link_libraries(libuWaveServer PRIVATE ${EARTHWORM_UTILITY_LIBRARY} ${EARTHWORM_MT_LIBRARY})
-#   target_include_directories(libuWaveServer PRIVATE ${EARTHWORM_INCLUDE_DIR})
-#   target_compile_definitions(libuWaveServer PRIVATE WITH_EARTHWORM)
-#endif()
 
 add_executable(uwsDataLoader
                src/main.cpp)

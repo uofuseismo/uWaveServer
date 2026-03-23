@@ -1,6 +1,7 @@
 #ifndef UWAVE_SERVER_DATA_CLIENT_SEED_LINK_HPP
 #define UWAVE_SERVER_DATA_CLIENT_SEED_LINK_HPP
 #include <uWaveServer/dataClient/dataClient.hpp>
+#include <spdlog/spdlog.h>
 namespace UWaveServer::DataClient
 {
  class SEEDLinkOptions;
@@ -15,7 +16,8 @@ class SEEDLink : public IDataClient
 {
 public:
     SEEDLink(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
-             const SEEDLinkOptions &options);
+             const SEEDLinkOptions &options,
+             std::shared_ptr<spdlog::logger> logger);
     /// @brief Destructor.
     ~SEEDLink() override;
     /// @brief Connects to the data source.

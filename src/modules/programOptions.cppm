@@ -22,6 +22,7 @@ struct ProgramOptions
 {
     UWaveServer::PacketSanitizerOptions mPacketSanitizerOptions;
     std::vector<UWaveServer::DataClient::SEEDLinkOptions> seedLinkOptions;
+    std::vector<UWaveServer::DataClient::GRPCOptions> grpcOptions;
     std::string applicationName{APPLICATION_NAME};
     OTelHTTPMetricsOptions otelHTTPMetricsOptions;
     OTelHTTPLogOptions otelHTTPLogOptions;

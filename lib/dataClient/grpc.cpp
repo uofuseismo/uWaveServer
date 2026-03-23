@@ -1,10 +1,13 @@
 #include <grpc/grpc.h>
 #include <grpcpp/grpcpp.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/dataClient/grpc.hpp"
 #include "uWaveServer/dataClient/grpcOptions.hpp"
 #include "uWaveServer/packet.hpp"
 #include "uDataPacketServiceAPI/v1/broadcast.grpc.pb.h"
+
+#define CLIENT_TYPE "gRPC"
 
 using namespace UWaveServer::DataClient;
 
@@ -160,11 +163,8 @@ public:
 private:
     grpc::ClientContext mClientContext;
     UDataPacketServiceAPI::V1::SubscriptionRequest mSubscriptionRequest;
-    std::function
-    <
-        void (UWaveServer::Packet &&packet)
-    > mAddPacketCallback;
-    std::shared_ptr<spdlog::logger> mLogger;
+    std::function<void (UWaveServer::Packet &&packet)> mAddPacketCallback;
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     std::mutex mMutex;
     std::condition_variable mConditionVariable;
     UDataPacketServiceAPI::V1::Packet mPacket;
@@ -180,9 +180,27 @@ class GRPC::GRPCImpl
 {
 public:
  
+    GRPCImpl(const GRPCOptions &options,
+             std::shared_ptr<spdlog::logger> logger) :
+        mGRPCOptions(options),
+        mLogger(logger)
+    {
+        if (mLogger == nullptr)
+        {
+            mLogger = spdlog::stdout_color_mt("GRPCSubscriber");
+        }
+    }
+
     ~GRPCImpl()
     {
         stop();
+    }
+
+    [[nodiscard]] std::future<void> start()
+    {
+        mKeepRunning.store(true);
+        auto result = std::async(&GRPCImpl::acquirePackets, this);
+        return result;
     }
 
     void acquirePackets()
@@ -225,6 +243,7 @@ public:
         mKeepRunning.store(false);
     }
 
+    std::function<void (UWaveServer::Packet &&packet)> mAddPacketFunction;
     GRPCOptions mGRPCOptions; 
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
     mutable std::mutex mShutdownMutex;
@@ -233,4 +252,52 @@ public:
     bool mShutdownRequested{false};
 };
 
+GRPC::GRPC(const std::function<void (std::vector<UWaveServer::Packet> &&)> &callback,
+           const GRPCOptions &options,
+           std::shared_ptr<spdlog::logger> logger) :
+    IDataClient(callback),
+    pImpl(std::make_unique<GRPCImpl> (options, logger))
+{
+    pImpl->mAddPacketFunction
+        = std::bind(&IDataClient::addPacket, this,
+                    std::placeholders::_1);
+
+}
+
+/// Initialized
+bool GRPC::isInitialized() const noexcept
+{
+    return true;
+}
+
+/// Connect
+void GRPC::connect()
+{
+}
+
+/// Is connected?
+bool GRPC::isConnected() const noexcept
+{
+    return pImpl->mKeepRunning.load();
+}
+
+/// Start the acquisition
+std::future<void> GRPC::start()
+{
+    return pImpl->start();
+}
+
+/// Stop the acquisition
+void GRPC::stop()
+{
+    pImpl->stop();
+}
+
+/// Type
+std::string GRPC::getType() const noexcept
+{
+    return CLIENT_TYPE;
+}
+
 GRPC::~GRPC() = default;
+

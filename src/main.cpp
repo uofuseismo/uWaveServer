@@ -18,6 +18,8 @@
 #include "uWaveServer/testDuplicatePacket.hpp"
 #include "uWaveServer/testFuturePacket.hpp"
 #include "uWaveServer/testExpiredPacket.hpp"
+#include "uWaveServer/dataClient/grpc.hpp"
+#include "uWaveServer/dataClient/grpcOptions.hpp"
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/dataClient.hpp"
@@ -133,15 +135,34 @@ public:
         }
 
         // Create data clients
-        SPDLOG_LOGGER_DEBUG(mLogger, "Creating SEEDLink clients...");
-        for (const auto &seedLinkOptions : options.seedLinkOptions)
+        if (!options.seedLinkOptions.empty())
         {
-            std::unique_ptr<UWaveServer::DataClient::IDataClient> client
-                = std::make_unique<UWaveServer::DataClient::SEEDLink>
-                    (mAddPacketsFromAcquisitionCallback, seedLinkOptions);
-            mDataAcquisitionClients.push_back(std::move(client));
+            SPDLOG_LOGGER_DEBUG(mLogger, "Creating SEEDLink clients...");
+            for (const auto &seedLinkOptions : options.seedLinkOptions)
+            {
+                std::unique_ptr<UWaveServer::DataClient::IDataClient> client
+                    = std::make_unique<UWaveServer::DataClient::SEEDLink>
+                        (mAddPacketsFromAcquisitionCallback, seedLinkOptions, mLogger);
+                mDataAcquisitionClients.push_back(std::move(client));
+            }
         } 
-        SPDLOG_LOGGER_DEBUG(mLogger, "Creating gRPC clients...");
+
+        if (!options.grpcOptions.empty())
+        {
+            SPDLOG_LOGGER_DEBUG(mLogger, "Creating gRPC clients...");
+            for (const auto &grpcOptions : options.grpcOptions)
+            {
+                std::unique_ptr<UWaveServer::DataClient::IDataClient> client
+                    = std::make_unique<UWaveServer::DataClient::GRPC>
+                      (mAddPacketsFromAcquisitionCallback, grpcOptions, mLogger);
+                mDataAcquisitionClients.push_back(std::move(client));
+            }
+        }
+
+        if (mDataAcquisitionClients.empty())
+        {
+            throw std::runtime_error("No acquistion clients created!");
+        }
 
         // Initialize metrics
         if (mProgramOptions.exportMetrics)
@@ -671,7 +692,7 @@ public:
         }
     }
     /// @brief Checks the futures
-    /// True indicates the all the processes are running a-okay.
+    /// @result True indicates the all the processes are running a-okay.
     [[nodiscard]]
     bool checkFuturesOkay(const std::chrono::milliseconds &timeOut)
     {
@@ -689,7 +710,7 @@ public:
             catch (const std::exception &e) 
             {
                 SPDLOG_LOGGER_CRITICAL(mLogger,
-                                       "Fatal error in SEEDLink import: {}",
+                                       "Fatal error in acquisition: {}",
                                        std::string {e.what()});
                 isOkay = false;
             }

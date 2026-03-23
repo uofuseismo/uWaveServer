@@ -1,6 +1,7 @@
 #ifndef UWAVE_SERVER_DATA_CLIENT_GRPC_HPP
 #define UWAVE_SERVER_DATA_CLIENT_GRPC_HPP
 #include <uWaveServer/dataClient/dataClient.hpp>
+#include <spdlog/logger.h>
 namespace UWaveServer::DataClient
 {
  class GRPCOptions;
@@ -15,7 +16,8 @@ class GRPC : public IDataClient
 {
 public:
     GRPC(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
-         const GRPCOptions &options);
+         const GRPCOptions &options,
+         std::shared_ptr<spdlog::logger> logger);
     /// @brief Destructor.
     ~GRPC() override;
     /// @brief Connects to the data source.

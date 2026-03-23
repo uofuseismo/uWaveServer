@@ -11,6 +11,7 @@
 #include <libslink.h>
 #include <libmseed.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/dataClient/seedLink.hpp"
 #include "uWaveServer/dataClient/seedLinkOptions.hpp"
 #include "uWaveServer/dataClient/streamSelector.hpp"
@@ -138,6 +139,7 @@ std::vector<UWaveServer::Packet>
                 + std::to_string(returnCode));
         }
     }
+/*
     if (dataPackets.size() > 1)
     {
         spdlog::warn("Multiple mseed packets received");
@@ -146,6 +148,7 @@ std::vector<UWaveServer::Packet>
     {
         spdlog::warn("No mseed packets unpacked");
     } 
+*/
     return dataPackets;
 }
 
@@ -154,6 +157,14 @@ std::vector<UWaveServer::Packet>
 class SEEDLink::SEEDLinkImpl
 {
 public:
+    explicit SEEDLinkImpl(std::shared_ptr<spdlog::logger> logger) :
+        mLogger(logger)
+    {
+        if (mLogger == nullptr)
+        {
+            mLogger = spdlog::stdout_color_mt("SEEDLinkClient");
+        }
+    }
     /// Destructor
     ~SEEDLinkImpl()
     {
@@ -264,6 +275,19 @@ public:
                         auto packets
                             = ::miniSEEDToDataPackets(seedLinkBuffer.data(),
                                                       payloadLength);
+                        if (packets.empty())
+                        {
+                            SPDLOG_LOGGER_WARN(mLogger,
+                                               "No mseed packets unpacked");
+                        }
+                        else
+                        {
+                            if (packets.size() > 1)
+                            {
+                                SPDLOG_LOGGER_WARN(mLogger,
+                                             "Multiple mseed packets unpacked");
+                            }
+                        }
                         for (auto &packet : packets)
                         {
                             try
@@ -272,15 +296,17 @@ public:
                             }
                             catch (const std::exception &e)
                             {
-                                spdlog::warn("Failed to add packet to callback "
-                                           + std::string {e.what()});
+                                SPDLOG_LOGGER_WARN(mLogger,
+                                "Failed to add packet to callback because: {}", 
+                                std::string {e.what()});
                             }
                         }
                     }
                     catch (const std::exception &e)
                     {
-                        spdlog::warn("Skipping packet.  Unpacking failed with: "
-                                   + std::string(e.what()));
+                        SPDLOG_LOGGER_WARN(mLogger,
+                           "Skipping packet.  Unpacking failed with: {}",
+                           std::string {e.what()});
                     }
                     if (mUseStateFile)
                     {
@@ -296,10 +322,10 @@ public:
             }
             else if (returnValue == SLTOOLARGE)
             {
-                spdlog::warn("Payload length "
-                           + std::to_string(seedLinkPacketInfo->payloadlength)
-                           + " exceeds " + std::to_string(seedLinkBufferSize) 
-                           + "; skipping");
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Payload length {} exceeds {}; skipping",
+                                   seedLinkPacketInfo->payloadlength,
+                                   seedLinkBufferSize);
                 continue;
             }
             else if (returnValue == SLNOPACKET)
@@ -316,37 +342,39 @@ public:
                     mSEEDLinkConnection->stat->netto_time <
                        sl_nstime() - nanoSecondsOffset.count())
                 {
-                    spdlog::error("No data for " 
-                                + std::to_string(mSEEDLinkConnection->netto)
-                                + " seconds - issuing terminate");
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                       "No data for {} seconds - terminating",
+                                       mSEEDLinkConnection->netto);
                     terminate(); 
                     break;
                 }
-                spdlog::debug("No data from sl_collect");
+                SPDLOG_LOGGER_DEBUG(mLogger, "No data from sl_collect");
                 std::this_thread::sleep_for(timeToSleep);
                 continue;
             }
             else if (returnValue == SLTERMINATE)
             {
-                spdlog::info("SEEDLink terminate request received");
+                SPDLOG_LOGGER_INFO(mLogger,
+                                   "SEEDLink terminate request received");
                 mConnected = false;
                 break;
             }
             else
             {
-                spdlog::warn("Unhandled SEEDLink return value: "
-                           + std::to_string(returnValue));
+                SPDLOG_LOGGER_WARN(mLogger,
+                                   "Unhandled SEEDLink return value: {}",
+                                   returnValue);
                 continue;
             }
         }
         if (!mKeepRunning)
         {
-            spdlog::error(
+            SPDLOG_LOGGER_ERROR(mLogger,
                "Thread left SEEDLink polling loop prior to program stop"); 
             throw std::runtime_error(
                "Likely seedlink error - bailed on polling");
         }
-        spdlog::info("Thread leaving SEEDLink polling loop");
+        SPDLOG_LOGGER_INFO(mLogger, "Thread leaving SEEDLink polling loop");
         
         mConnected = false;
     }
@@ -368,8 +396,8 @@ public:
         auto address = options.getAddress();
         auto port = options.getPort();
         auto seedLinkAddress = address +  ":" + std::to_string(port);
-        spdlog::info("Connecting to SEEDLink server "
-                   + seedLinkAddress + "...");
+        SPDLOG_LOGGER_INFO(mLogger, "Connecting to SEEDLink server {}...",
+                           seedLinkAddress);
         if (sl_set_serveraddress(
                mSEEDLinkConnection, seedLinkAddress.c_str()) != 0)
         {
@@ -396,9 +424,8 @@ public:
                 auto station = selector.getStation();
                 auto stationID = network + "_" + station;
                 auto streamSelector = selector.getSelector();
-                spdlog::info("Adding: "
-                            + stationID + " " 
-                            + streamSelector);
+                SPDLOG_LOGGER_INFO(mLogger, "Adding selector: {} {}",
+                                   stationID, streamSelector);
                 auto returnCode = sl_add_stream(mSEEDLinkConnection,
                                                 stationID.c_str(),
                                                 streamSelector.c_str(),
@@ -414,8 +441,8 @@ public:
             }
             catch (const std::exception &e)
             {
-                spdlog::warn("Could not add selector because "
-                            + std::string {e.what()});
+                SPDLOG_LOGGER_WARN(mLogger, "Could not add selector because {}",
+                                   std::string {e.what()});
             }
         }
         // Configure uni-station mode if no streams were specified
@@ -428,7 +455,8 @@ public:
                                                        timeStamp);
             if (returnCode != 0)
             {
-                spdlog::error("Could not set SEEDLink uni-station mode");
+                SPDLOG_LOGGER_ERROR(mLogger,
+                                    "Could not set SEEDLink uni-station mode");
                 throw std::runtime_error(
                     "Failed to create a SEEDLink uni-station client");
             }
@@ -438,7 +466,7 @@ public:
         constexpr bool nonBlock{true};
         if (sl_set_blockingmode(mSEEDLinkConnection, nonBlock) != 0)
         {
-            spdlog::warn("Failed to set non-blocking mode");
+            SPDLOG_LOGGER_WARN(mLogger, "Failed to set non-blocking mode");
         }
 #ifndef NDEBUG
         assert(mSEEDLinkConnection->noblock == 1);
@@ -446,7 +474,7 @@ public:
         constexpr bool closeConnection{false};
         if (sl_set_dialupmode(mSEEDLinkConnection, closeConnection) != 0)
         {
-            spdlog::warn("Failed to set keep-alive connection");
+            SPDLOG_LOGGER_WARN(mLogger, "Failed to set keep-alive connection");
         }
 #ifndef NDEBUG
         assert(mSEEDLinkConnection->dialup == static_cast<int> (closeConnection));
@@ -456,13 +484,13 @@ public:
             = static_cast<int> (options.getNetworkTimeOut().count());
         if (sl_set_idletimeout(mSEEDLinkConnection, networkTimeOut) != 0)
         {
-            spdlog::warn("Failed to set idle connection time");
+            SPDLOG_LOGGER_WARN(mLogger, "Failed to set idle connection time");
         }
         auto reconnectDelay
             = static_cast<int> (options.getNetworkReconnectDelay().count());
         if (sl_set_reconnectdelay(mSEEDLinkConnection, reconnectDelay) != 0)
         {
-            spdlog::warn("Failed to set reconnect delay");
+            SPDLOG_LOGGER_WARN(mLogger, "Failed to set reconnect delay");
         }
         // Check this worked
 #ifndef NDEBUG
@@ -475,18 +503,20 @@ public:
         {
             if (returnCode ==-1)
             {
-                spdlog::warn("Invalid ping response");
+                SPDLOG_LOGGER_WARN(mLogger, "Invalid ping response {}",
+                                   returnCode);
             }
             else
             {
-                spdlog::error("Could not connect to server");
+                SPDLOG_LOGGER_ERROR(mLogger, "Could not connect to server.");
                 throw std::runtime_error("Failed to connect");
             }
         }
         else
         {
-            spdlog::info("SEEDLink ping successfully returned server "
-                       + slServerID + " (site " + slSite + " )");
+            SPDLOG_LOGGER_INFO(mLogger,
+                     "SEEDLink ping successfully returned server {} (site {} )",
+                     slServerID, slSite);
         }
 #endif
         // All-good
@@ -495,6 +525,7 @@ public:
         mHaveOptions = true;
     }
     //mutable std::mutex mMutex;
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     std::string mClientName{"uwsDataLoader"};
     std::function<void(Packet &&packet)> mAddPacketFunction;
     std::thread mSEEDLinkReaderThread;
@@ -512,9 +543,10 @@ public:
 
 /// Constructor
 SEEDLink::SEEDLink(const std::function<void (std::vector<UWaveServer::Packet> &&packets)> &callback,
-                   const SEEDLinkOptions &options) :
+                   const SEEDLinkOptions &options,
+                   std::shared_ptr<spdlog::logger> logger) :
     IDataClient(callback),
-    pImpl(std::make_unique<SEEDLinkImpl> ())
+    pImpl(std::make_unique<SEEDLinkImpl> (logger))
 {
     pImpl->mAddPacketFunction
         = std::bind(&IDataClient::addPacket, this,
