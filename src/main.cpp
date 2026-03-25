@@ -107,6 +107,12 @@ public:
         //mDeepPacketSanitizerQueue.setCapacity(options.mQueueCapacity);
         mWritePacketToDatabaseQueue.setCapacity(options.mQueueCapacity);
 
+        // Testers
+        constexpr std::chrono::microseconds maxFutureTime{0};
+        constexpr std::chrono::seconds logBadDataInterval{std::chrono::minutes {30}};
+        mTestFuturePacket = std::make_unique<UWaveServer::TestFuturePacket> (maxFutureTime,  logBadDataInterval, mLogger);
+        constexpr std::chrono::microseconds maxExpiredTime{std::chrono::days {180}};
+        mTestExpiredPacket = std::make_unique<UWaveServer::TestExpiredPacket> (maxExpiredTime, logBadDataInterval, mLogger);
         // Create the database connection
         SPDLOG_LOGGER_DEBUG(mLogger,
             "Creating TimeSeriesDB PostgreSQL database connection...");
