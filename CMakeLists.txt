@@ -6,6 +6,7 @@ option(ENABLE_SSL "Enable SSL connections for the web server backend" ON)
 option(ENABLE_COMPRESSION "Enable compression for the web server backend" ON)
 option(BUILD_CONTAINER "Builds a container for CI/CD workflows" ON)
 option(BUILD_TESTS "Compile unit tests" ON)
+option(WITH_CONAN "Deals with wonkiness with the OTel libraries and Conan" OFF)
 #option(WITH_CORS "Compile with CORS * for the web server backend" OFF)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
@@ -28,18 +29,20 @@ else()
    set(CROW_ENABLE_COMPRESSION OFF)
 endif()
 find_package(spdlog REQUIRED)
-#find_package(SOCI COMPONENTS Core PostgreSQL REQUIRED)
-#find_package(PostgreSQL REQUIRED)
-#find_package(nlohmann_json 3.8.0 REQUIRED)
-
 find_package(Boost COMPONENTS program_options url headers REQUIRED)
 find_package(libmseed REQUIRED)
 find_package(SEEDLink REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(TBB REQUIRED)
-find_package(opentelemetry-cpp REQUIRED)
+if (${WITH_CONAN})
+   message("Will use Conan OTLP exporters")
+   find_package(opentelemetry-cpp CONFIG COMPONENTS exporter_otlp_grpc exporters_otlp_http REQUIRED)
+else()
+   find_package(opentelemetry-cpp CONFIG COMPONENTS exporters_otlp_http REQUIRED)
+endif()
 if (${BUILD_TESTS})
    find_package(Catch2 3 REQUIRED)
 endif()
@@ -172,7 +175,7 @@ if (${gRPC_FOUND})
                      PLUGIN_OPTIONS generate_mock_code=true
                      GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
                     )
-   target_link_libraries(libuWaveServer PRIVATE gRPC::grpc gRPC::grpc++)
+   target_link_libraries(libuWaveServer PRIVATE protobuf::libprotobuf gRPC::grpc gRPC::grpc++)
 endif()
 
 add_executable(uwsDataLoader
@@ -186,10 +189,26 @@ target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
                       PRIVATE libuWaveServer
-                              opentelemetry-cpp::otlp_http_log_record_exporter
-                              opentelemetry-cpp::otlp_http_metric_exporter
                               spdlog::spdlog_header_only
                               Boost::program_options)
+if (${WITH_CONAN})
+   target_link_libraries(uwsDataLoader
+                         PRIVATE opentelemetry-cpp::opentelemetry-cpp
+                                 opentelemetry-cpp::exporter_otlp_grpc
+                                 opentelemetry-cpp::exporter_otlp_grpc_client
+                                 opentelemetry-cpp::exporter_otlp_grpc_metrics
+                                 opentelemetry-cpp::exporter_otlp_http 
+                                 opentelemetry-cpp::exporter_otlp_http_client
+                                 opentelemetry-cpp::exporter_otlp_http_metric
+                                 opentelemetry-cpp::exporter_otlp_http_log
+                                 opentelemetry-cpp::metrics
+                                 opentelemetry-cpp::common
+                                 opentelemetry-cpp::api)
+else()
+   target_link_libraries(uwsDataLoader
+                         PRIVATE opentelemetry-cpp::otlp_http_log_record_exporter
+                                 opentelemetry-cpp::otlp_http_metric_exporter)
+endif()
 target_sources(uwsDataLoader
                PUBLIC FILE_SET
                       CXX_MODULES
@@ -214,8 +233,6 @@ if (${Crow_FOUND})
                          CXX_EXTENSIONS NO)
    target_link_libraries(uHTTPWaveServer
                          PRIVATE uWaveServer::libuWaveServer
-                                 opentelemetry-cpp::otlp_http_log_record_exporter
-                                 opentelemetry-cpp::otlp_http_metric_exporter
                                  Boost::program_options
                                  Crow::Crow
                                  spdlog::spdlog_header_only
@@ -238,6 +255,24 @@ if (${Crow_FOUND})
    endif()
    if (${ZLIB_FOUND})
       target_link_libraries(uHTTPWaveServer PRIVATE ZLIB::ZLIB)
+   endif()
+   if (${WITH_CONAN})
+      target_link_libraries(uHTTPWaveServer
+                            PRIVATE opentelemetry-cpp::opentelemetry-cpp
+                                    opentelemetry-cpp::exporter_otlp_grpc
+                                    opentelemetry-cpp::exporter_otlp_grpc_client
+                                    opentelemetry-cpp::exporter_otlp_grpc_metrics
+                                    opentelemetry-cpp::exporter_otlp_http 
+                                    opentelemetry-cpp::exporter_otlp_http_client
+                                    opentelemetry-cpp::exporter_otlp_http_metric
+                                    opentelemetry-cpp::exporter_otlp_http_log
+                                    opentelemetry-cpp::metrics
+                                    opentelemetry-cpp::common
+                                    opentelemetry-cpp::api)
+   else()
+       target_link_libraries(uHTTPWaveServer
+                             PRIVATE opentelemetry-cpp::otlp_http_log_record_exporter
+                                     opentelemetry-cpp::otlp_http_metric_exporter)
    endif()
    target_include_directories(uHTTPWaveServer
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)

@@ -1,0 +1,15 @@
+name: prepare-environment
+description: Prepares the environment
+runs:
+  using: "composite"
+  steps:
+    - name: Prepare environment
+      run: |
+        mkdir -p ${{github.workspae}}/build
+        sudo apt-get update
+        sudo apt-get install -y tar
+        sudo apt-get install -y wget
+        sudo apt-get install -y cmake
+        sudo apt-get install -y ninja-build
+        sudo apt-get install -y clang
+        sudo apt-get install -y clang-tidy

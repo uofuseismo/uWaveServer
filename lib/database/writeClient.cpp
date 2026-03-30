@@ -671,7 +671,7 @@ R"""(
             littleEndian,
             compressed,
             std::string {dataTypeSignifier},
-            pqxx::binary_cast(binaryData.data(), binaryData.size())};
+            pqxx::binary_cast(binaryData)}; //binaryData.data(), binaryData.size())};
         {
         pqxx::work transaction(*mConnection);
         transaction.exec(insertStatement, parameters); 
