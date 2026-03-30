@@ -26,7 +26,7 @@ runs:
         tar -xf v4.2.0.tar.gz
         rm v4.2.0.tar.gz
         cd libslink-4.2.0
-        CC=clang-21 make
+        CC=clang make
         sudo mv libslink.a /usr/local/lib
         sudo cp libslinkh /usr/local/include
         cd ../
