@@ -9,6 +9,8 @@ on:
 
 env:
   BUILD_TYPE: Release
+  CXX: /usr/bin/clang++
+  CC: /usr/bin/clang
 
 jobs:
   build:
