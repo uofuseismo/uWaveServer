@@ -189,6 +189,7 @@ target_include_directories(uwsDataLoader
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
 target_link_libraries(uwsDataLoader
                       PRIVATE libuWaveServer
+                              gRPC::grpc gRPC::grpc++
                               spdlog::spdlog_header_only
                               Boost::program_options)
 if (${WITH_CONAN})

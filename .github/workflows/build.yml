@@ -13,6 +13,11 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    name: Build on ${{ matrix.distro }} ${{ matrix.arch }}
+    #strategy:
+    #  fail-fast: false
+    #  matrix:
+    #    BUILD_TARGET: [Release]
 
     steps:
       - uses: actions/checkout@v6
@@ -22,11 +27,15 @@ jobs:
           cache: 'pip' 
       - run: pip install conan
 
+      - run: |
+          pwd
+          ls
+
       - uses: actions/cache@v5
         with:
           path: |
             ${HOME}/.conan2
-          key: ${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          key: ${{ runner.os }}-${{ hashFiles('./uWaveServer/conanfile.py') }}
 
       - name: Create default profile
         run: conan profile detect -f
