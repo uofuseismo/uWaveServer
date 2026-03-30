@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 project(uWaveServer VERSION 0.4.0 LANGUAGES CXX)
 enable_testing()
+include(FetchContent)
 
 option(ENABLE_SSL "Enable SSL connections for the web server backend" ON) 
 option(ENABLE_COMPRESSION "Enable compression for the web server backend" ON)
@@ -37,6 +38,12 @@ find_package(ZLIB REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(TBB REQUIRED)
+#FetchContent_Declare(
+#    libmseed
+#    GIT_REPOSITORY https://github.com/EarthScope/libmseed.git
+#    GIT_TAG        3.3.0
+#)
+#FetchContent_MakeAvailable(libmseed)
 if (${WITH_CONAN})
    message("Will use Conan OTLP exporters")
    find_package(opentelemetry-cpp CONFIG COMPONENTS exporter_otlp_grpc exporters_otlp_http REQUIRED)
