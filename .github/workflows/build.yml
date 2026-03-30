@@ -38,8 +38,13 @@ jobs:
             ${HOME}/.conan2
           key: ${{ runner.os }}-${{ hashFiles('./uWaveServer/conanfile.py') }}
 
-      - name: Create default profile
-        run: conan profile detect -f
+      - name: Create default profile with Ninja generator
+        run: | 
+          conan profile detect -f
+          echo "" ${HOME}/.conan2/profiles/default
+          echo "[conf]" >> ${HOME}/.conan2/profiles/default
+          echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ${HOME}/.conan2/profiles/default
+          tail -n 50 ${HOME}/.conan2/profiles/default
 
       - name: Prepare environment
         uses: ./.github/actions/prepare-environment
