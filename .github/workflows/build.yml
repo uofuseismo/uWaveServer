@@ -53,13 +53,11 @@ jobs:
         working-directory: ${{github.workspace}}
         run: "conan install --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=20 -s:a compiler.libcxx=libstdc++11 --output-folder ./build"
 
-      - name: Configure preset
-        working-directory: ${{github.workspace}}
-        run: "cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON"
-
-      - name: Compile
+      - name: Configure preset and build
         working-directory: ${{github.workspace}}
         run: |
-           ls 
-           "cmake --build --preset conan-release"
+           cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
+           cmake --build --preset conan-release
+           
+
         
