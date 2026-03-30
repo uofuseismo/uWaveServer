@@ -44,7 +44,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{github.workspace}}/build
-        run: "conan install --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=20 compiler.libcxx=libstdc++11 --output-folder ./build"
+        run: "conan install --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=20 -s:a compiler.libcxx=libstdc++11 --output-folder ./build"
 
       - name: Configure
         run: "cmake -GNinja -B ${{github.workspace}}/build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{github.workspace}}/"
