@@ -5,7 +5,7 @@ runs:
   steps:
     - name: Prepare environment
       run: |
-        mkdir -p ${{github.workspae}}/build
+        mkdir -p ${{github.workspace}}/build
         sudo apt-get update
         sudo apt-get install -y tar
         sudo apt-get install -y wget
