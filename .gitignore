@@ -32,3 +32,4 @@
 *.app
 
 version.hpp
+CMakeUserPresets.json
