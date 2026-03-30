@@ -28,7 +28,7 @@ runs:
         cd libslink-4.2.0
         CC=clang make
         sudo mv libslink.a /usr/local/lib
-        sudo cp libslinkh /usr/local/include
+        sudo cp libslink.h /usr/local/include
         cd ../
         rm -rf libslink-4.2.0 
       shell: bash
