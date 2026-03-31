@@ -102,6 +102,7 @@ jobs:
         run: |
            cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
            cmake --build --preset conan-release
+           cp CMakePresets.json build
 
       - name: Upload build directory
         uses: ./.github/actions/upload-build-directory
@@ -122,8 +123,9 @@ jobs:
       - name: Run unit tests for release
         working-directory: ${{github.workspace}}
         run: |
-          ls 
+          ls
           ls build
+          mv build/CMakePresets.json ./ 
           ctest --preset conan-release
 
   package:
@@ -140,7 +142,7 @@ jobs:
         uses: ./.github/actions/download-build-directory
 
       - name: Package tgz
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/build/Release
         run: |
           ls
           mkdir -p artifacts
