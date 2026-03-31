@@ -23,9 +23,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      # Trick next step
-      - run: |
-          touch requirements.txt
+      # Trick next step - python checkout wants a requirements.txt file
+      - run: touch requirements.txt
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
@@ -41,7 +40,7 @@ jobs:
       - name: Create default profile with Ninja generator
         run: | 
           conan profile detect -f
-          echo "" ${HOME}/.conan2/profiles/default
+          echo "" >> ${HOME}/.conan2/profiles/default
           echo "[conf]" >> ${HOME}/.conan2/profiles/default
           echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ${HOME}/.conan2/profiles/default
           tail -n 50 ${HOME}/.conan2/profiles/default
@@ -51,7 +50,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{github.workspace}}
-        run: "conan install --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=20 -s:a compiler.libcxx=libstdc++11 --output-folder ./build"
+        run: "conan install . --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=20 -s:a compiler.libcxx=libstdc++11 --output-folder ./build"
 
       - name: Configure preset and build
         working-directory: ${{github.workspace}}
