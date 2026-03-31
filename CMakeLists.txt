@@ -136,20 +136,16 @@ endif()
 if (BUILD_SHARED_LIBS)
    message("Will build shared library")
    add_library(libuWaveServer SHARED ${LIBRARY_SRC})
-   add_library(uWaveServer::libuWaveServer ALIAS libuWaveServer)
-   set_target_properties(libuWaveServer PROPERTIES
-                         CXX_STANDARD 20
-                         CXX_STANDARD_REQUIRED YES 
-                         CXX_EXTENSIONS NO) 
 else()
    message("Will build static library")
    add_library(libuWaveServer STATIC ${LIBRARY_SRC})
-   add_library(uWaveServer::libuWaveServer ALIAS libuWaveServer)
-   set_target_properties(libuWaveServer PROPERTIES
-                         CXX_STANDARD 20
-                         CXX_STANDARD_REQUIRED YES
-                         CXX_EXTENSIONS NO)
 endif()
+add_library(uWaveServer::libuWaveServer ALIAS libuWaveServer)
+set_target_properties(libuWaveServer PROPERTIES
+                      OUTPUT_NAME uWaveServer
+                      CXX_STANDARD 20
+                      CXX_STANDARD_REQUIRED YES
+                      CXX_EXTENSIONS NO)
 target_sources(libuWaveServer
                PUBLIC
                FILE_SET HEADERS
