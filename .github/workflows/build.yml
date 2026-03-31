@@ -100,10 +100,10 @@ jobs:
       - name: Configure preset and build
         working-directory: ${{github.workspace}}
         run: |
-           cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
-           cmake --build --preset conan-release
+           cmake --preset release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
+           cmake --build --preset release
 
-      - name: Upoad build directory
+      - name: Upload build directory
         uses: ./.github/actions/upload-build-directory
         
   test:
@@ -119,7 +119,35 @@ jobs:
       - name: Download build directory
         uses: ./.github/actions/download-build-directory
 
-      - name: Run unit tests
+      - name: Run unit tests for release
         working-directory: ${{github.workspace}}/build
-        run: ctest -C ${{env.BUILD_TYPE}}
-        
+        run: |
+          ls 
+          ctest --preset release
+
+  package:
+    runs-on: ubuntu-24.04
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare environment
+        uses: ./.github/actions/prepare-environment
+
+      - name: Download build directory
+        uses: ./.github/actions/download-build-directory
+
+      - name: Package tgz
+        working-directory: ${{github.workspace}}/build
+        run: |
+          ls
+          mkdir -p artifacts
+          cpack -B artifacts TGZ
+
+      #- uses: actions/upload-artifact@v7
+      #  with:
+      #    name: uWaveServer Package
+      #    path: |
+      #      artifacts/uWaveServer*
+      #      artifacts/Customer*.rpm        
