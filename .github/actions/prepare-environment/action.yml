@@ -21,8 +21,12 @@ runs:
       env:
         cache-name: cache-libmseed-libslink-modules
       with:
-        path: /usr/local/
-        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('/usr/local/include/libmseed.h') }}-${{ hashFiles('/usr/local/include/libslink.h') }}
+        path: |
+           /usr/local/include/libmseed.h
+           /usr/local/include/libslink.h
+           /usr/local/lib/libmseed.a
+           /usr/local/lib/libslink.a
+        key: ${{ runner.os }}-build-${{ env.cache-name }}
         
     - if: ${{ steps.cache-npm.outputs.cache-hit != 'true' }}
       name: Get libmseed/libslink
