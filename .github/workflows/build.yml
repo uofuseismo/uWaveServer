@@ -100,8 +100,8 @@ jobs:
       - name: Configure preset and build
         working-directory: ${{github.workspace}}
         run: |
-           cmake --preset release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
-           cmake --build --preset release
+           cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
+           cmake --build --preset conan-release
 
       - name: Upload build directory
         uses: ./.github/actions/upload-build-directory
@@ -123,7 +123,7 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: |
           ls 
-          ctest --preset release
+          ctest --preset conan-release
 
   package:
     runs-on: ubuntu-24.04
