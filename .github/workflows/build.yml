@@ -120,7 +120,7 @@ jobs:
         uses: ./.github/actions/download-build-directory
 
       - name: Run unit tests for release
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}
         run: |
           ls 
           ls build
