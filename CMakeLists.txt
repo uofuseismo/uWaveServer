@@ -329,7 +329,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                             gRPC::grpc gRPC::grpc++ 
                             spdlog::spdlog_header_only
                             mseed::mseed_static
-                            ZLIB::ZLIB
+                            Crow::Crow ZLIB::ZLIB
                             Catch2::Catch2 Catch2::Catch2WithMain)
    target_sources(unitTests
                   PUBLIC FILE_SET
