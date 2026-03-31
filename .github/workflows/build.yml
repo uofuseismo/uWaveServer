@@ -123,6 +123,7 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: |
           ls 
+          ls build
           ctest --preset conan-release
 
   package:
