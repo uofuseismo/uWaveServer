@@ -74,9 +74,8 @@ if (${OPENSSL_FOUND})
    endif()
 endif()
 
-
-configure_file(${CMAKE_SOURCE_DIR}/lib/private/version.hpp.in
-               ${CMAKE_SOURCE_DIR}/include/uWaveServer/version.hpp)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lib/private/version.hpp.in
+               ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer/version.hpp @ONLY)
 
 set(LIBRARY_SRC
     lib/dataClient/dataClient.cpp
@@ -164,8 +163,8 @@ target_link_libraries(libuWaveServer
                       PRIVATE Boost::headers spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
 target_compile_definitions(libuWaveServer PRIVATE WITH_ZLIB)
 target_include_directories(libuWaveServer
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/lib>
+                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
                            PUBLIC $<INSTALL_INTERFACE:include>)
 if (${SEEDLink_FOUND})
@@ -192,8 +191,8 @@ set_target_properties(uwsDataLoader PROPERTIES
                       CXX_STANDARD_REQUIRED YES 
                       CXX_EXTENSIONS NO) 
 target_include_directories(uwsDataLoader
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
+                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/lib>
+                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>)
 target_link_libraries(uwsDataLoader
                       PRIVATE libuWaveServer
                               gRPC::grpc gRPC::grpc++
@@ -283,7 +282,7 @@ if (${Crow_FOUND})
                                      opentelemetry-cpp::otlp_http_metric_exporter)
    endif()
    target_include_directories(uHTTPWaveServer
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>)
    #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>)
 endif()
 #add_executable(uwsWebServer
@@ -299,8 +298,8 @@ endif()
 #                      CXX_STANDARD_REQUIRED YES 
 #                      CXX_EXTENSIONS NO) 
 #target_include_directories(uwsWebServer
-#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>)
+#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/lib>
+#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>)
 #target_link_libraries(uwsWebServer
 #                      PRIVATE
 #                      uWaveServer spdlog::spdlog_header_only Boost::program_options Boost::url
@@ -339,9 +338,9 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                       FILES
                  )
    target_include_directories(unitTests
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/lib>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
    add_test(NAME unitTests 
             COMMAND unitTests)
