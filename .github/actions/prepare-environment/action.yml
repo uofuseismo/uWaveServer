@@ -14,6 +14,19 @@ runs:
         sudo apt-get install -y ninja-build
         sudo apt-get install -y clang
         sudo apt-get install -y clang-tidy
+      shell: bash
+      
+    - uses: actions/cache@v5
+      id: cache-libmseed-libslink      
+      env:
+        cache-name: cache-libmseed-libslink-modules
+      with:
+        path: /usr/local/
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('/usr/local/include/libmseed.h') }}-${{ hashFiles('/usr/local/include/libslink.h') }}
+        
+    - if: ${{ steps.cache-npm.outputs.cache-hit != 'true' }}
+      name: Get libmseed/libslink
+      run: |
         wget https://github.com/EarthScope/libmseed/archive/refs/tags/v3.3.0.tar.gz
         tar -xf v3.3.0.tar.gz
         rm v3.3.0.tar.gz
@@ -33,3 +46,4 @@ runs:
         cd ../
         rm -rf libslink-4.2.0 
       shell: bash
+          
