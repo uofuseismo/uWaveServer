@@ -102,6 +102,7 @@ jobs:
         run: |
            cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
            cmake --build --preset conan-release
+           cp include/uWaveServer/version.hpp build
            cp CMakeUserPresets.json build
 
       - name: Upload build directory
@@ -126,6 +127,7 @@ jobs:
           ls
           ls build
           ls build/Release
+          mv build/version.hpp include/uWaveServer/
           mv build/CMakeUserPresets.json ./ 
           ctest --preset conan-release
 
