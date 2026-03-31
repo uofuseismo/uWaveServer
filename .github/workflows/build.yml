@@ -32,17 +32,28 @@ jobs:
       - run: pip install conan
 
       - uses: actions/cache@v5
+        id: cache-conan      
+        env:
+          cache-name: cache-conan-modules
         with:
-          path: |
-            ${HOME}/.conan2
-          key: ${{ runner.os }}-${{ hashFiles('./conanfile.py') }}
+          path: ~/.conan2
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('./conanfile.py') }}
 
+      # Cache hit
+      - if: ${{ steps.cache-conan.outputs.cache-hit == 'true' }}
+        name: Cache hit - list the existing Conan modules
+        continue-on-error: true
+        run: |
+          ls ~/.conan2/
+          ls ~/.conan2/p
+      
+        
       - name: Create default profile with Ninja generator
         run: | 
           conan profile detect -f
-          echo "" >> ${HOME}/.conan2/profiles/default
-          echo "[conf]" >> ${HOME}/.conan2/profiles/default
-          echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ${HOME}/.conan2/profiles/default
+          echo "" >> ~/.conan2/profiles/default
+          echo "[conf]" >> ~/.conan2/profiles/default
+          echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ~/.conan2/profiles/default
           tail -n 50 ${HOME}/.conan2/profiles/default
 
       - name: Prepare environment
