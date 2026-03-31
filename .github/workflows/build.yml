@@ -35,7 +35,7 @@ jobs:
         with:
           path: |
             ${HOME}/.conan2
-          key: ${{ runner.os }}-${{ hashFiles('./uWaveServer/conanfile.py') }}
+          key: ${{ runner.os }}-${{ hashFiles('./conanfile.py') }}
 
       - name: Create default profile with Ninja generator
         run: | 
