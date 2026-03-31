@@ -161,7 +161,7 @@ target_sources(libuWaveServer
                )
 target_link_libraries(libuWaveServer
                       PUBLIC libpqxx::pqxx
-                      PRIVATE spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
+                      PRIVATE Boost::headers spdlog::spdlog_header_only mseed::mseed_static ZLIB::ZLIB)
 target_compile_definitions(libuWaveServer PRIVATE WITH_ZLIB)
 target_include_directories(libuWaveServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
