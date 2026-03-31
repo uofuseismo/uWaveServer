@@ -57,6 +57,24 @@ jobs:
         run: |
            cmake --preset conan-release -DWITH_CONAN=ON -DENABLE_COMPRESSION=ON -DENABLE_SSL=ON -DBUILD_CONTAINER=ON
            cmake --build --preset conan-release
-           
 
+      - name: Upoad build directory
+        uses: ./.github/actions/upload-build-directory
+        
+  test:
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare test environment
+        uses: ./.github/actions/prepare-environment
+
+      - name: Download build directory
+        uses: ./.github/actions/download-build-directory
+
+      #- name: test
+      #  working-directory: ${{github.workspace}}/build
+      #  run: ctest -C ${{env.BUILD_TYPE}}
         
