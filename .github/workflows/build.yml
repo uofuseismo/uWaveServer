@@ -153,9 +153,9 @@ jobs:
       - name: Build image
         working-directory: ${{github.workspace}}
         run: |
-          cd build/Release
-          version=$(ls build/Release/*tar.gz | sed 's/uWaveServer-//g' | sed 's/-Linux.tar.gz//g') 
-          cd ../../
+          cd build/Release/artifacts
+          version=$(ls *tar.gz | sed 's/uWaveServer-//g' | sed 's/-Linux.tar.gz//g') 
+          cd ../../../
           echo "Building container for version ${version}"
           cmake --build --preset conan-release --target buildah
           buildah tag uwaveserver:${version} quay.io/uuss/uwaveserver:${version}
