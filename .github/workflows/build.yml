@@ -156,7 +156,7 @@ jobs:
           QUAY_ROBOT_USER: ${{ secrets.QUAY_ROBOT_USER }}
         working-directory: ${{github.workspace}}
         run: |
-          echo $QUAY_ROBOT_PASSWORD | buildah login -u QUAY_ROBOT_USER --password-stdin quay.io
+          echo $QUAY_ROBOT_PASSWORD | buildah login -u $QUAY_ROBOT_USER --password-stdin quay.io
           cd build/Release
           cp artifacts/*tar.gz ./
           version=$(ls *tar.gz | sed 's/uWaveServer-//g' | sed 's/-Linux.tar.gz//g') 
