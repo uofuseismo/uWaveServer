@@ -805,8 +805,20 @@ int main(int argc, char *argv[])
     UWaveServer::Metrics::initializeMetricsSingleton();
     try
     {
-        UWaveServer::Metrics::initialize(programOptions.exportMetrics,
-                                         programOptions.otelHTTPMetricsOptions);
+        if (programOptions.exportHTTPMetrics)
+        {
+            UWaveServer::Metrics::initialize(programOptions.exportMetrics,
+                                             programOptions.otelHTTPMetricsOptions);
+        }
+        else
+        {
+#ifdef WITH_OTLP_GRPC
+            UWaveServer::Metrics::initialize(programOptions.exportMetrics,
+                                             programOptions.otelGRPCMetricsOptions);
+#else
+            throw std::runtime_error("Must compile with WITH_OTLP_GRPC");
+#endif
+        }
         //::initializeMetrics(programOptions.prometheusURL);
         //::initializeWriterMetrics(programOptions.applicationName);
     }    
