@@ -180,15 +180,16 @@ public:
         {
             if (mSEEDLinkConnection->link != -1)
             {
-                spdlog::debug("Disconnecting SEEDLink...");
+                SPDLOG_LOGGER_DEBUG(mLogger, "Disconnecting SEEDLink...");
                 sl_disconnect(mSEEDLinkConnection);
             }
             if (mUseStateFile)
             {
-                spdlog::debug("Saving state prior to disconnect...");
+                SPDLOG_LOGGER_DEBUG(mLogger,
+                                    "Saving state prior to disconnect...");
                 sl_savestate(mSEEDLinkConnection, mStateFile.c_str());
             }
-            spdlog::debug("Freeing SEEDLink structure...");
+            SPDLOG_LOGGER_DEBUG(mLogger, "Freeing SEEDLink structure...");
             sl_freeslcd(mSEEDLinkConnection);
             mSEEDLinkConnection = nullptr;
         }
@@ -198,7 +199,7 @@ public:
     {
         if (mSEEDLinkConnection != nullptr)
         {
-            spdlog::debug("Issuing terminate command to poller");
+            SPDLOG_LOGGER_DEBUG("Issuing terminate command to poller");
             sl_terminate(mSEEDLinkConnection);
         }
     }
@@ -206,20 +207,23 @@ public:
     void setRunning(const bool running)
     {
         // Terminate the session
-        if (!running && mKeepRunning)
+        if (!running && mKeepRunning.load())
         {
-            spdlog::debug("Issuing terminate command");
+            SPDLOG_LOGGER_DEBUG(mLogger, "Issuing terminate command");
+            // Tell the scraping thread to quit if it hasn't already given up
+            // because it received a terminate request
+            mKeepRunning.store(running);
             terminate();
         }
-        // Tell the scraping thread to quit if it hasn't already given up
-        // because it received a terminate request
-        mKeepRunning = running;
+        else
+        {
+            mKeepRunning.store(running);
+        }
     }
     /// Stops the service
     void stop()
     {
         setRunning(false); // Issues terminate command
-        if (mSEEDLinkReaderThread.joinable()){mSEEDLinkReaderThread.join();}
     }
     /// Starts the service
     std::future<void> start()
@@ -230,7 +234,7 @@ public:
             throw std::runtime_error("SEEDLink client not initialized");
         }
         setRunning(true);
-        spdlog::debug("Starting the SEEDLink polling thread...");
+        SPDLOG_LOGGER_DEBUG(mLogger, "Starting the SEEDLink polling thread...");
         mSEEDLinkConnection->terminate = 0;
         auto result = std::async(&SEEDLinkImpl::packetToCallback, this);
         return result;
@@ -245,7 +249,7 @@ public:
         {
             if (!sl_recoverstate(mSEEDLinkConnection, mStateFile.c_str()))
             {
-                 spdlog::warn("Failed to recover state");
+                 SPDLOG_LOGGER_WARN(mLogger, "Failed to recover state");
             }
         }
         // Now start scraping
@@ -255,7 +259,8 @@ public:
         const auto seedLinkBufferSize
             = static_cast<uint32_t> (seedLinkBuffer.size());
         int updateStateFile{1};
-        spdlog::debug("Thread entering SEEDLink polling loop...");
+        SPDLOG_LOGGER_DEBUG(mLogger,
+                            "Thread entering SEEDLink polling loop...");
         while (mKeepRunning)
         {
             // Attempt to collect data but then immediately return.
@@ -369,7 +374,7 @@ public:
                 continue;
             }
         }
-        if (!mKeepRunning)
+        if (mKeepRunning.load())
         {
             SPDLOG_LOGGER_ERROR(mLogger,
                "Thread left SEEDLink polling loop prior to program stop"); 
@@ -530,7 +535,6 @@ public:
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
     std::string mClientName{"uwsDataLoader"};
     std::function<void(Packet &&packet)> mAddPacketFunction;
-    std::thread mSEEDLinkReaderThread;
     SLCD *mSEEDLinkConnection{nullptr};
     SEEDLinkOptions mOptions; 
     std::string mStateFile;

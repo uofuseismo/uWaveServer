@@ -345,8 +345,8 @@ public:
                 //<< header.endTime.count()*1.e-6 << " " << streamHeader.endTime.count()*1.e-6 << std::endl;
                 if (mLogBadData)
                 {
-                    spdlog::info("Detected possible timing slip for: "
-                               + header.name);
+                    spdlog::debug("Detected possible timing slip for: "
+                                + header.name);
                     {
                     std::lock_guard<std::mutex> lockGuard(mMutex);
                     if (!mBadTimingChannels.contains(header.name))
@@ -393,7 +393,7 @@ public:
         mCircularBuffers;
     mutable std::set<std::string> mDuplicateChannels;
     mutable std::set<std::string> mBadTimingChannels;
-    std::chrono::seconds mLogBadDataInterval{3600};
+    std::chrono::seconds mLogBadDataInterval{std::chrono::minutes {15}};
     std::chrono::seconds mLastLogTime{0};
     std::chrono::seconds mCircularBufferDuration{300};
     int mCircularBufferSize{100}; // ~3s packets 

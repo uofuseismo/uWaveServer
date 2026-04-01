@@ -144,7 +144,7 @@ public:
     std::set<std::string> mFutureChannels;
     std::chrono::microseconds mMaxFutureTime{0};
     std::chrono::seconds mLastLogTime{0};
-    std::chrono::seconds mLogBadDataInterval{3600};
+    std::chrono::seconds mLogBadDataInterval{std::chrono::minutes {15}};
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
     bool mLogBadData{true};
 };

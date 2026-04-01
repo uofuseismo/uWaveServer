@@ -113,6 +113,15 @@ public:
         mTestFuturePacket = std::make_unique<UWaveServer::TestFuturePacket> (maxFutureTime,  logBadDataInterval, mLogger);
         constexpr std::chrono::microseconds maxExpiredTime{std::chrono::days {180}};
         mTestExpiredPacket = std::make_unique<UWaveServer::TestExpiredPacket> (maxExpiredTime, logBadDataInterval, mLogger);
+        mTestShallowDuplicatePacket = std::make_unique<UWaveServer::TestDuplicatePacket> (
+            15, // Last 15 packets (good for multiple telemetry routes)
+            std::chrono::seconds {-1}
+        );
+        mTestDeepDuplicatePacket = std::make_unique<UWaveServer::TestDuplicatePacket> (
+            std::chrono::seconds {120},
+            logBadDataInterval
+        );
+
         // Create the database connection
         SPDLOG_LOGGER_DEBUG(mLogger,
             "Creating TimeSeriesDB PostgreSQL database connection...");
@@ -336,7 +345,10 @@ public:
                     if (allow &&
                         static_cast<int> (mDataAcquisitionClients.size()) > 1)
                     {
-                        allow = mTestShallowDuplicatePacket.allow(packet);
+                        if (mTestShallowDuplicatePacket)
+                        {
+                            allow = mTestShallowDuplicatePacket->allow(packet);
+                        }
                         if (!allow)
                         {
                             metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Duplicate);
@@ -346,7 +358,10 @@ public:
                     }
                     if (allow)
                     {
-                        allow = mTestDeepDuplicatePacket.allow(packet);
+                        if (mTestDeepDuplicatePacket)
+                        {
+                            allow = mTestDeepDuplicatePacket->allow(packet);
+                        }
                         if (!allow)
                         {
                             metrics.incrementRejectedPacketsCounter(UWaveServer::Metrics::MetricsSingleton::Reason::Duplicate);
@@ -476,13 +491,12 @@ public:
                     if (nowSeconds >= lastLogTime
                                     + mLogWritePerformanceInterval)
                     {
-                        spdlog::info(std::to_string(nRowsWritten)
-                                   + " packets written on thread " + std::to_string(iThread) 
-                                   + ".  Average packet write time took "
-                                   + std::to_string (averageTime/nRowsWritten)
-                                   + " seconds.  ("
-                                   + std::to_string(static_cast<int> (std::round(nRowsWritten/cumulativeTime)))
-                                   + " rows/second)" );
+                        SPDLOG_LOGGER_INFO(mLogger,
+                                          "{} packets written on thread {}.  Average packet write time took {} seconds.  ({} rows/second)",
+                                          nRowsWritten, 
+                                          std::to_string(iThread),
+                                          static_cast<double> (averageTime/nRowsWritten),
+                                          static_cast<int> (std::round(nRowsWritten/cumulativeTime)));
                         //printEvery = 0;
                         averageTime = 0;
                         nRowsWritten = 0;
@@ -561,6 +575,7 @@ public:
     {   
         mInterrupted = true;
     }
+
     static void catchSignals()
     {
         struct sigaction action;
@@ -573,6 +588,12 @@ public:
         // down after SIGTERM or the hammer is coming down!
         sigaction(SIGTERM, &action, NULL);
     }
+
+    void printSummary()
+    {
+
+    }
+
     /// Place for the main thread to sleep until someone wakes it up.
     void handleMainThread()
     {
@@ -588,14 +609,22 @@ public:
                     mStopRequested = true;
                     break;
                 }
-                if (!checkFuturesOkay(std::chrono::milliseconds {5}))
+                constexpr std::chrono::milliseconds waitForFuture {5};
+                if (!checkFuturesOkay(waitForFuture))
                 {
                     SPDLOG_LOGGER_CRITICAL(mLogger,
                        "Futures exception caught; terminating app");
                     mStopRequested = true;
                     break;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds {50});
+                printSummary();
+                std::unique_lock<std::mutex> lock(mStopMutex);
+                constexpr std::chrono::milliseconds pause{100};
+                mStopCondition.wait_for(lock, pause,
+                                        [this]
+                                        {
+                                            return mStopRequested;
+                                        });
             }
         }
         if (mStopRequested)
@@ -603,6 +632,7 @@ public:
             SPDLOG_LOGGER_DEBUG(mLogger,
                                 "Stop request received.  Terminating...");
             stop();
+            std::this_thread::sleep_for(std::chrono::milliseconds {15});
         }
     }
 
@@ -654,10 +684,7 @@ public:
         }
         for (auto &dataAcquisitionFuture : mDataAcquisitionFutures)
         {
-            if (dataAcquisitionFuture.valid())
-            {
-                dataAcquisitionFuture.get();
-            }
+            if (dataAcquisitionFuture.valid()){dataAcquisitionFuture.get();}
         }
         mDataAcquisitionFutures.clear();
 
@@ -736,12 +763,16 @@ public:
         std::bind(&::Process::addPacketsFromAcquisition, this,
                   std::placeholders::_1)
     };
+    /*
     UWaveServer::TestDuplicatePacket mTestShallowDuplicatePacket {
         15, // Last 15 packets (good for multiple telemetry routes)
         std::chrono::seconds {-1}};
     UWaveServer::TestDuplicatePacket mTestDeepDuplicatePacket {
         std::chrono::seconds {120},
-        std::chrono::hours {1}};
+        std::chrono::seconds {std::chrono::minutes {15}}};
+    */
+    std::unique_ptr<UWaveServer::TestDuplicatePacket> mTestShallowDuplicatePacket{nullptr};
+    std::unique_ptr<UWaveServer::TestDuplicatePacket> mTestDeepDuplicatePacket{nullptr};
     std::unique_ptr<UWaveServer::TestFuturePacket> mTestFuturePacket{nullptr};
     std::unique_ptr<UWaveServer::TestExpiredPacket> mTestExpiredPacket{nullptr};
 /*
@@ -756,7 +787,7 @@ public:
 */
     UWaveServer::ProgramOptions mProgramOptions;
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
-    mutable std::mutex mStopContext;
+    mutable std::mutex mStopMutex;
     std::condition_variable mStopCondition;
     std::vector<std::future<void>> mDataAcquisitionFutures;
     std::vector<std::thread> mDatabaseWriterThreads;
@@ -796,10 +827,33 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    auto logger
-        = UWaveServer::Logger::initialize(programOptions.verbosity,
-                                          programOptions.exportLogs,
-                                          programOptions.otelHTTPLogOptions);
+    std::shared_ptr<spdlog::logger> logger{nullptr};
+    try
+    {
+        if (programOptions.exportHTTPLogs)
+        {
+            logger
+               = UWaveServer::Logger::initialize(programOptions.verbosity,
+                                                 programOptions.exportLogs,
+                                                 programOptions.otelHTTPLogOptions);
+        }
+        else
+        {
+#ifdef WITH_OTLP_GRPC
+            logger
+                = UWaveServer::Logger::initialize(programOptions.verbosity,
+                                                  programOptions.exportLogs,
+                                                  programOptions.otelGRPCLogOptions);
+#else
+            throw std::runtime_error("Must compile with WITH_OTLP_GRPC");
+#endif
+       }
+    }
+    catch (const std::exception &e)
+    {
+       std::cerr << "Logger initialization failed with " << e.what() << std::endl;
+       return EXIT_FAILURE;
+    }
 
     // Initialize metrics
     UWaveServer::Metrics::initializeMetricsSingleton();
@@ -1048,35 +1102,67 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
     */
 
     // Logging
-    UWaveServer::OTelHTTPLogOptions logOptions;
-    logOptions.url
-         = getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
-    logOptions.suffix
-         = propertyTree.get<std::string>
-           ("OTelHTTPLogOptions.suffix", "/v1/logs");
-    if (!logOptions.url.empty())
-    {   
-        if (!logOptions.suffix.empty())
+    options.exportLogs = false;
+    if (propertyTree.get_optional<std::string> ("OTelHTTPLogOptions"))
+    {
+        UWaveServer::OTelHTTPLogOptions logOptions;
+        logOptions.url
+            = ::getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
+        logOptions.suffix
+            = propertyTree.get<std::string>
+              ("OTelHTTPLogOptions.suffix", "/v1/logs");
+        if (!logOptions.url.empty())
         {   
-            if (!logOptions.url.ends_with("/") &&
-                !logOptions.suffix.starts_with("/"))
-            {   
-                logOptions.suffix = "/" + logOptions.suffix;
+            if (!logOptions.suffix.empty())
+            {
+                if (!logOptions.url.ends_with("/") &&
+                    !logOptions.suffix.starts_with("/"))
+                {   
+                    logOptions.suffix = "/" + logOptions.suffix;
+                }
             }
         }
+        if (!logOptions.url.empty())
+        {   
+            options.exportLogs = true;
+            options.exportHTTPLogs = true;
+            options.otelHTTPLogOptions = logOptions;
+        }
     }
-    if (!logOptions.url.empty())
-    {   
-        options.exportLogs = true;
-        options.otelHTTPLogOptions = logOptions;
+    else if (propertyTree.get_optional<std::string> ("OTelGRPCLogOptions"))
+    {
+#ifndef WITH_OTLP_GRPC
+        throw std::runtime_error(
+            "Recompile with Conan to use gRPC logs exporter option");
+#endif
+        UWaveServer::OTelGRPCLogOptions logOptions;
+        logOptions.url
+            = ::getOTelCollectorURL(propertyTree, "OTelGRPCLogOptions");
+        auto certificatePath
+            = propertyTree.get_optional<std::string>
+              ("OTelGRPCLogOptions.certificate");
+        if (certificatePath)
+        {
+            if (std::filesystem::exists(*certificatePath))
+            {
+                logOptions.certificatePath = *certificatePath;
+            }
+        }    
+        if (!logOptions.url.empty())
+        {
+            options.exportLogs = true;
+            options.exportHTTPLogs = false;
+            options.otelGRPCLogOptions = logOptions;
+        }
     }
 
     // Metrics
+    options.exportMetrics = false;
     if (propertyTree.get_optional<std::string> ("OTelHTTPMetricsOptions"))
     {
         UWaveServer::OTelHTTPMetricsOptions metricsOptions;
         metricsOptions.url
-            = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+            = ::getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
         metricsOptions.suffix
             = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
                                              "/v1/metrics");
@@ -1100,6 +1186,8 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
         metricsOptions.exportInterval = exportInterval;
         metricsOptions.exportTimeOut = exportTimeOut;
         options.otelHTTPMetricsOptions = metricsOptions;
+        options.exportMetrics = true;
+        options.exportHTTPMetrics = true;
     }
     else if (propertyTree.get_optional<std::string> ("OTelGRPCMetricsOptions"))
     {
@@ -1109,7 +1197,7 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
 #endif
         UWaveServer::OTelGRPCMetricsOptions metricsOptions;
         metricsOptions.url
-            = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+            = getOTelCollectorURL(propertyTree, "OTelGRPCMetricsOptions");
         auto [exportInterval, exportTimeOut]
             = ::getOTelMetricsIntervalAndTimeOut(
                   propertyTree,
@@ -1118,7 +1206,22 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
                   metricsOptions.exportTimeOut);
         metricsOptions.exportInterval = exportInterval;
         metricsOptions.exportTimeOut = exportTimeOut;
-        options.otelGRPCMetricsOptions = metricsOptions;
+        auto certificatePath
+            = propertyTree.get_optional<std::string>
+              ("OTelGRPCMetricsOptions.certificate");
+        if (certificatePath)
+        {
+            if (std::filesystem::exists(*certificatePath))
+            {
+                metricsOptions.certificatePath = *certificatePath;
+            }
+        }
+        if (!metricsOptions.url.empty())
+        {
+            options.otelGRPCMetricsOptions = metricsOptions;
+            options.exportMetrics = true;
+            options.exportHTTPMetrics = false; 
+        }
     }
     // Database
     options.databaseUser
