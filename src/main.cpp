@@ -878,12 +878,11 @@ std::pair<std::string, bool> parseCommandLineOptions(int argc, char *argv[])
 {
     std::string iniFile;
     boost::program_options::options_description desc(R"""(
-The uwsDataLoader maps data from a telemetry to the waveserver TimescaleDB
-Postgres database.
+The uDataPacketToDatabase maps data from a telemetry to the TimescaleDB Postgres database.
 
 Example usage is
 
-    uwsDataLoader --ini=loader.ini
+    uDataPacketToDatabase --ini=loader.ini
 
 Allowed options)""");
     desc.add_options()
@@ -941,6 +940,36 @@ std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
     return result;
 }
 
+[[nodiscard]]
+std::pair<std::chrono::milliseconds, std::chrono::milliseconds>
+getOTelMetricsIntervalAndTimeOut(
+    boost::property_tree::ptree &propertyTree,
+    const std::string &section,
+    const std::chrono::milliseconds &defaultExportInterval,
+    const std::chrono::milliseconds &defaultExportTimeOut)
+{
+    int64_t exportInterval = defaultExportInterval.count();
+    exportInterval
+        = propertyTree.get<int64_t> (
+            section + ".exportIntervalInMilliSeconds",
+            exportInterval);
+    if (exportInterval <= 0)
+    {
+        throw std::runtime_error("Export interval must be positive");
+    }
+    int64_t exportTimeOut = defaultExportTimeOut.count();
+    exportTimeOut
+        = propertyTree.get<int64_t> (
+            section + ".exportTimeOutInMilliSeconds",
+            exportTimeOut);
+    if (exportTimeOut <= 0)
+    {
+        throw std::invalid_argument("Export time out must be positive");
+    }
+    return std::pair {std::chrono::milliseconds {exportInterval},
+                      std::chrono::milliseconds {exportTimeOut}};
+}
+
 [[nodiscard]] UWaveServer::DataClient::SEEDLinkOptions
 getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
                    const std::string &clientName)
@@ -966,76 +995,6 @@ getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
             // UU.FORK.HH?.01 | UU.CTU.EN?.01 | ....
             for (const auto &thisSplitSelector : splitSelectors)
             {
-                /*
-                std::vector<std::string> thisSelector; 
-                auto splitSelector = thisSplitSelector;
-                boost::algorithm::trim(splitSelector);
-
-                // Need to preprocess selector so there's no double spaces
-                for (int k = 1; k < static_cast<int> (splitSelector.size()); )
-                {
-                    if (splitSelector[k - 1] == splitSelector[k] &&
-                        splitSelector[k] == ' ')
-                    {
-                        splitSelector.erase(k, 1);
-                    }
-                    else
-                    {
-                        ++k;
-                    }
-                }
-
-                boost::split(thisSelector, splitSelector,
-                             boost::is_any_of(" \t"));
-                UWaveServer::DataClient::StreamSelector selector;
-                if (splitSelector.empty())
-                {
-                    throw std::invalid_argument("Empty selector");
-                }
-                // Require a network
-                auto network = thisSelector.at(0);
-                boost::algorithm::trim(network);
-                selector.setNetwork(network);
-                // Add a station?
-                if (splitSelector.size() > 1)
-                {
-                    auto station = thisSelector.at(1);
-                    boost::algorithm::trim(station);
-                    selector.setStation(station);
-                }
-                // Add channel + location code + data type
-                std::string channel{"*"};
-                std::string locationCode{"??"};
-                if (splitSelector.size() > 2)
-                {
-                    channel = thisSelector[2];
-                    boost::algorithm::trim(channel);
-                }
-                if (splitSelector.size() > 3)
-                {
-                    locationCode = thisSelector[3];
-                    boost::algorithm::trim(locationCode);
-                }
-                // Data type
-                auto dataType
-                    = UWaveServer::DataClient::StreamSelector::Type::All;
-                if (thisSelector.size() > 4)
-                {
-                    boost::algorithm::trim(thisSelector.at(4));
-                    if (thisSelector.at(4) == "D")
-                    {
-                        dataType
-                          = UWaveServer::DataClient::StreamSelector::Type::Data;
-                    }
-                    else if (thisSelector.at(4) == "A")
-                    {
-                        dataType 
-                            = UWaveServer::DataClient::StreamSelector::Type::All;
-                    }
-                    // TODO other data types
-                }
-                selector.setSelector(channel, locationCode, dataType);
-                */
                 auto selector
                     = UWaveServer::DataClient::StreamSelector::fromString(
                         thisSplitSelector);
@@ -1113,24 +1072,54 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
     }
 
     // Metrics
-    UWaveServer::OTelHTTPMetricsOptions metricsOptions;
-    metricsOptions.url
-         = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
-    metricsOptions.suffix
-         = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
-                                          "/v1/metrics");
-    if (!metricsOptions.url.empty())
-    {   
-        if (!metricsOptions.suffix.empty())
-        {
-            if (!metricsOptions.url.ends_with("/") &&
-                !metricsOptions.suffix.starts_with("/"))
+    if (propertyTree.get_optional<std::string> ("OTelHTTPMetricsOptions"))
+    {
+        UWaveServer::OTelHTTPMetricsOptions metricsOptions;
+        metricsOptions.url
+            = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+        metricsOptions.suffix
+            = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
+                                             "/v1/metrics");
+        if (!metricsOptions.url.empty())
+        {   
+            if (!metricsOptions.suffix.empty())
             {
-                metricsOptions.suffix = "/" + metricsOptions.suffix;
+                if (!metricsOptions.url.ends_with("/") &&
+                    !metricsOptions.suffix.starts_with("/"))
+                {
+                    metricsOptions.suffix = "/" + metricsOptions.suffix;
+                }
             }
-        }
-    }   
-
+        }   
+        auto [exportInterval, exportTimeOut]
+            = ::getOTelMetricsIntervalAndTimeOut(
+                  propertyTree,
+                  "OTelHTTPMetricsOptions",
+                  metricsOptions.exportInterval,
+                  metricsOptions.exportTimeOut);
+        metricsOptions.exportInterval = exportInterval;
+        metricsOptions.exportTimeOut = exportTimeOut;
+        options.otelHTTPMetricsOptions = metricsOptions;
+    }
+    else if (propertyTree.get_optional<std::string> ("OTelGRPCMetricsOptions"))
+    {
+#ifndef WITH_OTLP_GRPC
+        throw std::runtime_error(
+            "Recompile with Conan to use gRPC metrics exporter option");
+#endif
+        UWaveServer::OTelGRPCMetricsOptions metricsOptions;
+        metricsOptions.url
+            = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+        auto [exportInterval, exportTimeOut]
+            = ::getOTelMetricsIntervalAndTimeOut(
+                  propertyTree,
+                  "OTelGRPCMetricsOptions",
+                  metricsOptions.exportInterval,
+                  metricsOptions.exportTimeOut);
+        metricsOptions.exportInterval = exportInterval;
+        metricsOptions.exportTimeOut = exportTimeOut;
+        options.otelGRPCMetricsOptions = metricsOptions;
+    }
     // Database
     options.databaseUser
         = propertyTree.get<std::string> ("Database.user", 

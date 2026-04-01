@@ -7,7 +7,7 @@
 #include <crow/json.h>
 #include <spdlog/spdlog.h>
 #include "uWaveServer/packet.hpp"
-#include "lib/private/toName.hpp"
+#include "toName.hpp"
 namespace
 {
 

@@ -11,8 +11,7 @@
 #
 #   uWaveServer_FOUND - true if uWaveServer library was found on the system
 #   uWaveServer_INCLUDE_DIR - the directory containing uWaveServer headers
-#   uWaveServer_LIBRARY - 
-#   uWaveServer_STATIC_LIBRARY
+#   uWaveServer_LIBRARY - the uWaveServer library
 
 include(CMakeFindDependencyMacro)
 

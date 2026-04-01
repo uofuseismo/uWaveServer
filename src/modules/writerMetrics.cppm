@@ -160,18 +160,16 @@ void initialize(
     const bool exportMetrics,
     const UWaveServer::OTelGRPCMetricsOptions &otelGRPCMetricsOptions)
 {
-    if (!programOptions.exportMetrics){return;}
+    if (!exportMetrics){return;}
     namespace otel = opentelemetry;
     otel::exporter::otlp::OtlpGrpcMetricExporterOptions exporterOptions;
-    exporterOptions.endpoint
-        = programOptions.otelGRPCMetricsOptions.url + ":" 
-        + std::to_string(programOptions.otelGRPCMetricsOptions.port);
+    exporterOptions.endpoint = otelGRPCMetricsOptions.url;
     exporterOptions.use_ssl_credentials = false;
-    if (!programOptions.otelGRPCMetricsOptions.certificatePath.empty())
+    if (!otelGRPCMetricsOptions.certificatePath.empty())
     {   
         exporterOptions.use_ssl_credentials = true;
         exporterOptions.ssl_credentials_cacert_path
-           = programOptions.otelGRPCMetricsOptions.certificatePath;
+           = otelGRPCMetricsOptions.certificatePath;
     }   
     auto exporter
         = otel::exporter::otlp::OtlpGrpcMetricExporterFactory::Create(
@@ -198,7 +196,6 @@ void initialize(
 
     // Histogram config
     createDatabaseWriterHistogram(metricsProvider.get());
-
 
     std::shared_ptr<otel::metrics::MeterProvider>
         provider(std::move(metricsProvider));

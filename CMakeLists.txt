@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(uWaveServer VERSION 0.4.0 LANGUAGES CXX)
+project(uWaveServer VERSION 0.4.1 LANGUAGES CXX)
 enable_testing()
 include(FetchContent)
 
@@ -150,7 +150,8 @@ target_sources(libuWaveServer
                PUBLIC
                FILE_SET HEADERS
                BASE_DIRS
-                  ${CMAKE_CURRENT_SOURCE_DIR}
+                  include
+                  ${CMAKE_CURRENT_BINARY_DIR}/include
                FILES 
                   ${LIBRARY_HEADER_FILES}
                )
@@ -162,7 +163,7 @@ target_include_directories(libuWaveServer
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-                           PUBLIC $<INSTALL_INTERFACE:include>)
+                           PUBLIC  $<INSTALL_INTERFACE:>)
 if (${SEEDLink_FOUND})
    target_link_libraries(libuWaveServer PRIVATE SEEDLink::SEEDLink)
    target_compile_definitions(libuWaveServer PRIVATE WITH_SEEDLINK)
@@ -180,22 +181,22 @@ if (${gRPC_FOUND})
    target_link_libraries(libuWaveServer PRIVATE protobuf::libprotobuf gRPC::grpc gRPC::grpc++)
 endif()
 
-add_executable(uwsDataLoader
+add_executable(uDataPacketToDatabase
                src/main.cpp)
-set_target_properties(uwsDataLoader PROPERTIES
+set_target_properties(uDataPacketToDatabase PROPERTIES
                       CXX_STANDARD 20
                       CXX_STANDARD_REQUIRED YES 
                       CXX_EXTENSIONS NO) 
-target_include_directories(uwsDataLoader
+target_include_directories(uDataPacketToDatabase
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(uwsDataLoader
+target_link_libraries(uDataPacketToDatabase
                       PRIVATE libuWaveServer
                               gRPC::grpc gRPC::grpc++
                               spdlog::spdlog_header_only
                               Boost::program_options)
 if (${WITH_CONAN})
-   target_link_libraries(uwsDataLoader
+   target_link_libraries(uDataPacketToDatabase
                          PRIVATE opentelemetry-cpp::opentelemetry-cpp
                                  opentelemetry-cpp::proto_grpc
                                  opentelemetry-cpp::exporter_otlp_grpc
@@ -208,12 +209,13 @@ if (${WITH_CONAN})
                                  opentelemetry-cpp::metrics
                                  opentelemetry-cpp::common
                                  opentelemetry-cpp::api)
+   target_compile_definitions(uDataPacketToDatabase PRIVATE WITH_OTLP_GRPC)
 else()
-   target_link_libraries(uwsDataLoader
+   target_link_libraries(uDataPacketToDatabase
                          PRIVATE opentelemetry-cpp::otlp_http_log_record_exporter
                                  opentelemetry-cpp::otlp_http_metric_exporter)
 endif()
-target_sources(uwsDataLoader
+target_sources(uDataPacketToDatabase
                PUBLIC FILE_SET
                       CXX_MODULES
                       BASE_DIRS
@@ -225,10 +227,11 @@ target_sources(uwsDataLoader
                          src/modules/otelSpdlogSink.cppm
                          src/modules/getEnvironmentVariable.cppm
                          src/modules/writerMetrics.cppm)
+list(APPEND binaries uDataPacketToDatabase)
 
 
 if (${Crow_FOUND})
-   message("Will build web server")
+   message("Will build HTTP waveserver")
    add_executable(uHTTPWaveServer
                   src/httpWaveServer.cpp)
    set_target_properties(uHTTPWaveServer PROPERTIES
@@ -280,28 +283,28 @@ if (${Crow_FOUND})
                                      opentelemetry-cpp::otlp_http_metric_exporter)
    endif()
    target_include_directories(uHTTPWaveServer
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-   #                           PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>)
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+                              PRIVATE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib>)
+   list(APPEND binaries uHTTPWaveServer)
 endif()
-#add_executable(uwsWebServer
-#               src/webServer/main.cpp
-#               src/webServer/callback.cpp
-#               src/webServer/listener.cpp)
-#if (${ENABLE_SSL})
-#   target_compile_definitions(uwsWebServer PUBLIC WITH_OPENSSL)
-#   target_link_libraries(uwsWebServer PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-#endif()
-#set_target_properties(uwsWebServer PROPERTIES
-#                      CXX_STANDARD 20
-#                      CXX_STANDARD_REQUIRED YES 
-#                      CXX_EXTENSIONS NO) 
-#target_include_directories(uwsWebServer
-#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
-#                           PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-#target_link_libraries(uwsWebServer
-#                      PRIVATE
-#                      uWaveServer spdlog::spdlog_header_only Boost::program_options Boost::url
-#                      nlohmann_json::nlohmann_json libmseed::libmseed)# SOCI::Core SOCI::PostgreSQL)
+
+if (${gRPC_FOUND})
+   message("Will build GRPC waveserver")
+   add_executable(uGRPCWaveServer
+                  src/grpcWaveServer.cpp)
+   set_target_properties(uGRPCWaveServer PROPERTIES
+                         CXX_STANDARD 20
+                         CXX_STANDARD_REQUIRED YES 
+                         CXX_EXTENSIONS NO) 
+   target_link_libraries(uGRPCWaveServer
+                         PRIVATE uWaveServer::libuWaveServer
+                                 Boost::program_options
+                                 gRPC::grpc gRPC::grpc++
+                                 spdlog::spdlog_header_only
+                                 )   
+   list(APPEND binaries uGRPCWaveServer)
+endif()
 
 if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
@@ -336,10 +339,11 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                       FILES
                  )
    target_include_directories(unitTests
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/lib>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>)
    add_test(NAME unitTests 
             COMMAND unitTests)
    #if (${ZLIB_FOUND})
@@ -370,7 +374,7 @@ if (${BUILD_CONTAINER})
                      COMMENT "Creating container file for ${PROJECT_NAME}"
                      COMMAND ${CMAKE_CPACK_COMMAND} -G TGZ
                      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
-   add_dependencies(${PROJECT_NAME}-u24 uwsDataLoader uHTTPWaveServer libuWaveServer)
+   add_dependencies(${PROJECT_NAME}-u24 ${binaries} libuWaveServer)
    find_program(buildah_EXECUTABLE buildah)
    if (buildah_EXECUTABLE)
       add_custom_target(buildah
@@ -388,37 +392,25 @@ endif()
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 configure_file(${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
-               ${PROJECT_NAME}Config.cmake @ONLY)
+               ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake @ONLY)
 write_basic_package_version_file(
    ${PROJECT_NAME}ConfigVersion.cmake
    VERSION ${PACKAGE_VERSION}
    COMPATIBILITY AnyNewerVersion)
-#configure_package_config_file(
-#    cmake/${PROJECT_NAME}Config.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-#    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
-#write_basic_package_version_file(
-#    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-#    VERSION "${version}"
-#    COMPATIBILITY AnyNewerVersion
-#)
-#install(TARGETS uWaveServer uwsWebServer uwsDataLoader
-#        EXPORT ${PROJECT_NAME}-targets
-#        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-#        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-#        COMPONENT Runtime)
+
 install(TARGETS libuWaveServer
         EXPORT ${PROJECT_NAME}Targets
         FILE_SET HEADERS
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT libraries)
-install(TARGETS uHTTPWaveServer uwsDataLoader
+message(${binaries})
+install(TARGETS ${binaries}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         COMPONENT applications)
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/uWaveServer
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT headers)
+#install(DIRECTORY ${PROJECT_SOURCE_DIR}/include
+#        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+#        COMPONENT headers)
 export(EXPORT ${PROJECT_NAME}Targets
        FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake")
 install(EXPORT ${PROJECT_NAME}Targets
@@ -428,7 +420,6 @@ install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
-
 
 ##########################################################################################
 #                                     CPACK Packaging                                    #

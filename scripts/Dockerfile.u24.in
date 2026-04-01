@@ -13,9 +13,9 @@ RUN apt-get update &&\
     apt-get autoremove -y &&\
     apt-get clean &&\
     tar -xf ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux.tar.gz &&\
-    mv ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/bin/uwsDataLoader /usr/local/bin/ &&\
+    mv ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/bin/uDataPacketToDatabase /usr/local/bin/ &&\
     mv ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/bin/uHTTPWaveServer /usr/local/bin/ &&\
-    mv ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/lib/liblibuWaveServer* /usr/local/lib/ &&\
+    mv ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/bin/uGRPCWaveServer /usr/local/bin/ &&\
     rm -r ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux/ &&\
     rm -r /var/lib/apt/lists/* ./@PROJECT_NAME@-@PROJECT_VERSION@-Linux.tar.gz
 
