@@ -150,16 +150,17 @@ jobs:
           mkdir -p artifacts
           cpack -B artifacts TGZ
 
-      - name: Build image
+      - name: Build and push image
         working-directory: ${{github.workspace}}
         run: |
-          cd build/Release/artifacts
+          echo $QUAY_ROBOT_PASSWORD | buildah login -u QUAY_ROBOT_USER --password-stdin quay.io
+          cd build/Release
+          cp artifacts/*tar.gz ./
           version=$(ls *tar.gz | sed 's/uWaveServer-//g' | sed 's/-Linux.tar.gz//g') 
-          cd ../../../
-          echo "Building container for version ${version}"
-          cmake --build --preset conan-release --target buildah
+          echo "Will build container version ${version}"
+          buildah bud -t uwaveserver:${version} -t uwaveserver:latest -f ./Dockerfile.u24
           buildah tag uwaveserver:${version} quay.io/uuss/uwaveserver:${version}
-          #buildah push quay.io/uuss/uwaveserver:${version}
+          buildah push quay.io/uuss/uwaveserver:${version}
 
       #- uses: actions/upload-artifact@v7
       #  with:
