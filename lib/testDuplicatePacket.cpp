@@ -429,8 +429,9 @@ TestDuplicatePacket::TestDuplicatePacket() :
 /// Constructor
 TestDuplicatePacket::TestDuplicatePacket(
     const int circularBufferSize,
-    const std::chrono::seconds &logBadDataInterval) :
-    pImpl(std::make_unique<TestDuplicatePacketImpl> ())
+    const std::chrono::seconds &logBadDataInterval,
+    std::shared_ptr<spdlog::logger> logger) :
+    pImpl(std::make_unique<TestDuplicatePacketImpl> (logger))
 {
     if (circularBufferSize < 1)
     {
@@ -445,8 +446,9 @@ TestDuplicatePacket::TestDuplicatePacket(
 /// Constructor
 TestDuplicatePacket::TestDuplicatePacket(
     const std::chrono::seconds &circularBufferDuration,
-    const std::chrono::seconds &logBadDataInterval) :
-    pImpl(std::make_unique<TestDuplicatePacketImpl> ())
+    const std::chrono::seconds &logBadDataInterval,
+    std::shared_ptr<spdlog::logger> logger) :
+    pImpl(std::make_unique<TestDuplicatePacketImpl> (logger))
 {
     if (circularBufferDuration.count() < 1)
     {

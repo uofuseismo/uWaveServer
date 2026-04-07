@@ -115,11 +115,13 @@ public:
         mTestExpiredPacket = std::make_unique<UWaveServer::TestExpiredPacket> (maxExpiredTime, logBadDataInterval, mLogger);
         mTestShallowDuplicatePacket = std::make_unique<UWaveServer::TestDuplicatePacket> (
             15, // Last 15 packets (good for multiple telemetry routes)
-            std::chrono::seconds {-1}
+            std::chrono::seconds {-1},
+            mLogger
         );
         mTestDeepDuplicatePacket = std::make_unique<UWaveServer::TestDuplicatePacket> (
             std::chrono::seconds {120},
-            logBadDataInterval
+            logBadDataInterval,
+            mLogger
         );
 
         // Create the database connection

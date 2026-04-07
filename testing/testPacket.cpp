@@ -10,6 +10,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include "uWaveServer/packet.hpp"
 #include "uWaveServer/testFuturePacket.hpp"
 #include "uWaveServer/testExpiredPacket.hpp"
@@ -125,11 +127,12 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
     // Business as usual - all data comes in on time and subsequently
     SECTION("All good data")
     {
+        auto logger = spdlog::stdout_color_st("all-good-duplicate-packet-tester-console");
         const std::chrono::seconds logBadDataInterval{0};
         const int circularBufferSize{15};
 
         UWaveServer::TestDuplicatePacket
-            tester{circularBufferSize, logBadDataInterval}; 
+            tester{circularBufferSize, logBadDataInterval, logger}; 
         int cumulativeSamples{0}; 
         int nExamples = 2*circularBufferSize;
         for (int iPacket = 0; iPacket < nExamples; iPacket++)
@@ -146,11 +149,12 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
 
     SECTION("Every other is a duplicate")
     {
+        auto logger = spdlog::stdout_color_st("every-other-duplicate-packet-tester-console");
         const std::chrono::seconds logBadDataInterval{-1};
         const int circularBufferSize{15};
 
         UWaveServer::TestDuplicatePacket
-            tester{circularBufferSize, logBadDataInterval}; 
+            tester{circularBufferSize, logBadDataInterval, logger}; 
         int cumulativeSamples{0}; 
         int nExamples = 2*circularBufferSize;
         for (int iPacket = 0; iPacket < nExamples; iPacket++)
@@ -168,11 +172,12 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
 
     SECTION("Every other is perturbed data")
     {
+        auto logger = spdlog::stdout_color_st("every-other-perturbed-duplicate-packet-tester-console");
         const std::chrono::seconds logBadDataInterval{-1};
         const int circularBufferSize{15};
 
         UWaveServer::TestDuplicatePacket
-            tester{circularBufferSize, logBadDataInterval}; 
+            tester{circularBufferSize, logBadDataInterval, logger}; 
         int cumulativeSamples{0}; 
         int nExamples = 2*circularBufferSize;
         for (int iPacket = 0; iPacket < nExamples; iPacket++)
@@ -193,6 +198,7 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
 
     SECTION("Out of order with duplicates")
     {
+        auto logger = spdlog::stdout_color_st("ooodp-duplicate-packet-tester-console");
         const std::chrono::seconds logBadDataInterval{-1};
         const int circularBufferSize{15};
 
@@ -211,7 +217,7 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
         std::shuffle(packets.begin(), packets.end(), generator);
 
         UWaveServer::TestDuplicatePacket
-            tester{circularBufferSize, logBadDataInterval}; 
+            tester{circularBufferSize, logBadDataInterval, logger}; 
         for (const auto &outOfOrderPacket : packets)
         {
             //std::cout << std::setprecision(16) << "hey " << outOfOrderPacket.getStartTime().count()*1.e-6 << std::endl;
@@ -222,11 +228,12 @@ TEST_CASE("UWaveServer::TestDuplicatePacket")
 
     SECTION("Timing slips")
     {
+        auto logger = spdlog::stdout_color_st("bad-timing-duplicate-packet-tester-console");
         const std::chrono::seconds logBadDataInterval{-1};
         const int circularBufferSize{15};
 
         UWaveServer::TestDuplicatePacket
-            tester{circularBufferSize, logBadDataInterval}; 
+            tester{circularBufferSize, logBadDataInterval, logger}; 
         int cumulativeSamples{0}; 
         // Load it
         int nExamples = circularBufferSize;

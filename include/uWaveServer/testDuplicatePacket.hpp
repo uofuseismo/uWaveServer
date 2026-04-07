@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <memory>
+#include <spdlog/logger.h>
 namespace UWaveServer
 {
 class Packet;
@@ -37,7 +38,8 @@ public:
     ///                                log flagged channels at approximately
     ///                                this interval.
     TestDuplicatePacket(const int circularBufferSize,
-                        const std::chrono::seconds &logBadDataInterval);
+                        const std::chrono::seconds &logBadDataInterval,
+                        std::shared_ptr<spdlog::logger> logger);
     /// @param[in] circularBufferDuration  The approximate temporal duration
     ///                                    of the circular buffer.
     /// @param[in] logBadDataInterval  If this is postiive then this iwll
@@ -46,7 +48,8 @@ public:
     /// @note This will estimate the capacity based on the size a sensor's
     ///       first packet.
     TestDuplicatePacket(const std::chrono::seconds &circularBufferDuration,
-                        const std::chrono::seconds &logBadDataInterval);
+                        const std::chrono::seconds &logBadDataInterval,
+                        std::shared_ptr<spdlog::logger> logger);
     /// @brief Copy constructor.
     TestDuplicatePacket(const TestDuplicatePacket &testDuplicatePacket);
     /// @brief Move constructor.
