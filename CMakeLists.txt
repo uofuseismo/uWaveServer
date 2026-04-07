@@ -277,6 +277,7 @@ if (${Crow_FOUND})
                                     opentelemetry-cpp::metrics
                                     opentelemetry-cpp::common
                                     opentelemetry-cpp::api)
+       target_compile_definitions(uHTTPWaveServer PRIVATE WITH_OTLP_GRPC)
    else()
        target_link_libraries(uHTTPWaveServer
                              PRIVATE opentelemetry-cpp::otlp_http_log_record_exporter

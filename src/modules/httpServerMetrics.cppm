@@ -202,7 +202,7 @@ void initialize(
              std::move(context));
 
     // Histogram config
-    createDatabaseWriterHistogram(metricsProvider.get());
+    createDatabaseReaderHistogram(metricsProvider.get());
 
     std::shared_ptr<otel::metrics::MeterProvider>
         provider(std::move(metricsProvider));
