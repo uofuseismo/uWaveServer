@@ -186,7 +186,19 @@ public:
 class TestDuplicatePacket::TestDuplicatePacketImpl
 {
 public:
-    TestDuplicatePacketImpl() = default;
+    TestDuplicatePacketImpl() :
+        mLogger(spdlog::stdout_color_mt("duplicate-packet-tester-console"))
+    {
+    }
+    TestDuplicatePacketImpl(std::shared_ptr<spdlog::logger> logger) :
+        mLogger(logger)
+    {
+        if (mLogger == nullptr)
+        {
+            mLogger
+                = spdlog::stdout_color_mt("duplicate-packet-tester-console");
+        }
+    }
     TestDuplicatePacketImpl(const TestDuplicatePacketImpl &impl)
     {   
         *this = impl;
@@ -211,7 +223,7 @@ public:
                 {
                     message = message + " " + channel;
                 }
-                spdlog::info(message);
+                SPDLOG_LOGGER_INFO(mLogger, "{}", message);
                 mDuplicateChannels.clear();
                 mLastLogTime = nowSeconds;
             }
@@ -222,7 +234,7 @@ public:
                 {
                     message = message + " " + channel;
                 }
-                spdlog::info(message);  
+                SPDLOG_LOGGER_INFO(mLogger, "{}", message);
                 mBadTimingChannels.clear();
                 mLastLogTime = nowSeconds;
             }
@@ -237,7 +249,6 @@ public:
 #endif
         // Does this channel exist?
         auto circularBufferIndex = mCircularBuffers.find(header.name);
-        bool firstExample{false};
         if (circularBufferIndex == mCircularBuffers.end())
         {
             int capacity = mCircularBufferSize;
@@ -247,9 +258,9 @@ public:
                     = ::estimateCapacity(header,
                                          mCircularBufferDuration);
             }
-            spdlog::info("Creating new circular buffer for: "
-                       + header.name + " with capacity: "
-                       + std::to_string(capacity));
+            SPDLOG_LOGGER_INFO(mLogger,
+                 "Creating new circular buffer for {} with capacity {}",
+                 header.name, capacity);
             boost::circular_buffer<::DataPacketHeader>
                 newCircularBuffer(capacity);
             newCircularBuffer.push_back(header);
@@ -263,9 +274,10 @@ public:
         circularBufferIndex = mCircularBuffers.find(header.name);
         if (circularBufferIndex == mCircularBuffers.end())
         {
-            spdlog::warn(
-                "Algorithm error - circular buffer doesn't exist for: "
-               + header.name);
+            SPDLOG_LOGGER_ERROR(
+                mLogger,
+                "Algorithm error - circular buffer doesn't exist for {}",
+                header.name);
             return false;
         }
         // See if this header exists (exactly)
@@ -278,8 +290,8 @@ public:
         {
             if (mLogBadData)
             {
-                spdlog::debug("Detected duplicate for: "
-                            + header.name);
+                SPDLOG_LOGGER_DEBUG(mLogger, "Detected duplicate for {}",
+                                    header.name);
                 {
                 std::lock_guard<std::mutex> lockGuard(mMutex);
                 if (!mDuplicateChannels.contains(header.name))
@@ -293,8 +305,9 @@ public:
         // Insert it (typically new stuff shows up)
         if (header.startTime > circularBufferIndex->second.back().endTime)
         {
-            spdlog::debug("Inserting " + header.name
-                        + " at end of circular buffer");
+            SPDLOG_LOGGER_DEBUG(mLogger,
+                                "Inserting {} at end of circular buffer",
+                                header.name);
             circularBufferIndex->second.push_back(header);
             return true;
         }
@@ -303,8 +316,9 @@ public:
         {
             if (!circularBufferIndex->second.full())
             {
-                spdlog::debug("Inserting " + header.name 
-                            + " at front of circular buffer");
+                SPDLOG_LOGGER_DEBUG(mLogger,
+                             "Inserting {} at front of circular buffer",
+                             header.name);
                 circularBufferIndex->second.push_front(header);
 #ifndef NDEBUG
                 assert(std::is_sorted(circularBufferIndex->second.begin(),
@@ -337,16 +351,18 @@ public:
                     header.samplingRate == streamHeader.samplingRate &&
                     header.dataHash != streamHeader.dataHash)
                 {
-                    spdlog::warn("Data perturbation detected for: "
-                               + header.name);
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                       "Data perturbation detected for {}",
+                                       header.name);
                     return false;
                 }
                 //std::cout << std::setprecision(16) << header.name << " " << streamHeader.name << " | " << header.startTime.count()*1.e-6 << " " << streamHeader.startTime.count()*1.e-6 << " | " 
                 //<< header.endTime.count()*1.e-6 << " " << streamHeader.endTime.count()*1.e-6 << std::endl;
                 if (mLogBadData)
                 {
-                    spdlog::debug("Detected possible timing slip for: "
-                                + header.name);
+                    SPDLOG_LOGGER_DEBUG(mLogger,
+                                        "Detected possible timing slip for {}",
+                                        header.name);
                     {
                     std::lock_guard<std::mutex> lockGuard(mMutex);
                     if (!mBadTimingChannels.contains(header.name))
@@ -359,8 +375,9 @@ public:
             }
         }
         // This appears to be a valid (out-of-order) back-fill
-        spdlog::debug("Inserting " + header.name
-                    + " in circular buffer then sorting...");
+        SPDLOG_LOGGER_DEBUG(mLogger,
+                            "Inserting {} in circular buffer then sorting",
+                            header.name);
         circularBufferIndex->second.push_back(header);
         std::sort(circularBufferIndex->second.begin(),
                   circularBufferIndex->second.end(),
@@ -380,6 +397,7 @@ public:
         mBadTimingChannels = impl.mBadTimingChannels;
         mLastLogTime = impl.mLastLogTime; 
         }
+        mLogger = impl.mLogger;
         mLogBadDataInterval = impl.mLogBadDataInterval;
         mCircularBufferDuration = impl.mCircularBufferDuration;
         mCircularBufferSize = impl.mCircularBufferSize;
@@ -388,6 +406,7 @@ public:
         return *this;
     }
 //private:
+    std::shared_ptr<spdlog::logger> mLogger{nullptr};
     mutable std::mutex mMutex;
     mutable std::map<std::string, boost::circular_buffer<::DataPacketHeader>>
         mCircularBuffers;
@@ -494,9 +513,9 @@ bool TestDuplicatePacket::allow(const UWaveServer::Packet &packet) const
     }
     catch (const std::exception &e)
     {
-        spdlog::warn(
-            "Failed to unpack dataPacketHeader.  Failed because: "
-          + std::string {e.what()} + "; Not allowing...");
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+           "Unpack dataPacketHeader failed because {}; Not alllowing.",
+           std::string {e.what()});
         return false;
     }
     bool allow{true};
@@ -506,8 +525,9 @@ bool TestDuplicatePacket::allow(const UWaveServer::Packet &packet) const
     }
     catch (const std::exception &e)
     {
-        spdlog::warn("Failed to check packet because "  
-                   + std::string {e.what()});
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Failed to check packet because {}",
+                            std::string {e.what()});
     }
     try
     {
@@ -515,8 +535,9 @@ bool TestDuplicatePacket::allow(const UWaveServer::Packet &packet) const
     }
     catch (const std::exception &e)
     {
-        spdlog::warn("Error: " + std::string {e.what()}
-                   + " detected during logging expired data.");
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+            "Detected error {} during logging of expired data",
+            std::string {e.what()});
     }
     return allow;
 }

@@ -1,7 +1,9 @@
 #include <iostream>
+#include <limits>
 #include <iomanip>
 #include <string>
 #include <vector>
+#include <set>
 #include <chrono>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -49,6 +51,8 @@ struct ProgramOptions
 
     UWaveServer::OTelHTTPMetricsOptions otelHTTPMetricsOptions;
     UWaveServer::OTelHTTPLogOptions otelHTTPLogOptions;
+    UWaveServer::OTelGRPCMetricsOptions otelGRPCMetricsOptions;
+    UWaveServer::OTelGRPCLogOptions otelGRPCLogOptions;
 
     std::string crowServerName{"localhost"};
     std::string crowBindAddress{"127.0.0.1"};
@@ -78,6 +82,8 @@ struct ProgramOptions
     uint16_t nThreads{2}; // Min is 2 for crow
     bool exportLogs{false};
     bool exportMetrics{false};
+    bool exportHTTPMetrics{true};
+    bool exportHTTPLogs{true};
 };
 
 std::pair<std::string, bool> parseCommandLineOptions(int, char *[]);
@@ -272,17 +278,30 @@ public:
         const int verbosity{3};
         constexpr bool exportLogs{false};
         logger
-           = UWaveServer::Logger::initialize(verbosity, 
-                                             exportLogs,
-                                             otelHTTPLogOptions);
+            = UWaveServer::Logger::initialize(verbosity, 
+                                              exportLogs,
+                                              otelHTTPLogOptions);
     }
-    CustomLogger(::ProgramOptions &options) 
+    CustomLogger(::ProgramOptions &programOptions) 
     {
-        logger
-           = UWaveServer::Logger::initialize(
-                options.verbosity,
-                options.exportLogs,
-                options.otelHTTPLogOptions);
+        if (programOptions.exportHTTPLogs)
+        {
+            logger
+               = UWaveServer::Logger::initialize(programOptions.verbosity,
+                                                 programOptions.exportLogs,
+                                                 programOptions.otelHTTPLogOptions);
+        }
+        else
+        {
+#ifdef WITH_OTLP_GRPC
+            logger
+                = UWaveServer::Logger::initialize(programOptions.verbosity,
+                                                  programOptions.exportLogs,
+                                                  programOptions.otelGRPCLogOptions);
+#else
+            throw std::runtime_error("Must compile with WITH_OTLP_GRPC");
+#endif
+       }
     }
     ~CustomLogger()
     {
@@ -332,22 +351,22 @@ int main(int argc, char *argv[])
         iniFile = iniFileName;
     }   
     catch (const std::exception &e) 
-    {    
+    {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
 
     // Read the program properties
     ::ProgramOptions programOptions;
-    try 
-    {   
+    try
+    {
         programOptions = ::parseIniFile(iniFile);
-    }   
-    catch (const std::exception &e) 
-    {   
+    }
+    catch (const std::exception &e)
+    {
         spdlog::error(e.what());
         return EXIT_FAILURE;
-    }   
+    }
 
     // Initializes logger
     CustomLogger customLogger{programOptions};
@@ -356,9 +375,22 @@ int main(int argc, char *argv[])
     UWaveServer::Metrics::initializeMetricsSingleton();
     try
     {
-        UWaveServer::Metrics::initialize(
-            programOptions.exportMetrics,
-            programOptions.otelHTTPMetricsOptions);
+        if (programOptions.exportHTTPMetrics)
+        {
+            UWaveServer::Metrics::initialize(
+                programOptions.exportMetrics,
+                programOptions.otelHTTPMetricsOptions);
+        }
+        else
+        {
+#ifdef WITH_OTLP_GRPC
+            UWaveServer::Metrics::initialize(
+                programOptions.exportMetrics,
+                programOptions.otelGRPCMetricsOptions);
+#else
+            throw std::runtime_error("Must compile with WITH_OTLP_GRPC");
+#endif
+        }
     }
     catch (const std::exception &e)
     {
@@ -377,17 +409,60 @@ int main(int argc, char *argv[])
     auto &metrics = UWaveServer::Metrics::MetricsSingleton::getInstance();
 
     UWaveServer::Database::Credentials databaseCredentials;
-    databaseCredentials.setUser(programOptions.databaseUser);
-    databaseCredentials.setPassword(programOptions.databasePassword);
-    databaseCredentials.setHost(programOptions.databaseHost);
-    databaseCredentials.setPort(programOptions.databasePort);
-    databaseCredentials.setDatabaseName(programOptions.databaseName);
-    databaseCredentials.setApplication(programOptions.applicationName);
-    databaseCredentials.setSchema("ynp");
+    try
+    {
+        databaseCredentials.setUser(programOptions.databaseUser);
+        databaseCredentials.setPassword(programOptions.databasePassword);
+        databaseCredentials.setHost(programOptions.databaseHost);
+        databaseCredentials.setPort(programOptions.databasePort);
+        databaseCredentials.setDatabaseName(programOptions.databaseName);
+        databaseCredentials.setApplication(programOptions.applicationName);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_CRITICAL(customLogger.logger,
+                               "Failed to set database credentials because {}",
+                               std::string {e.what()});
+        return EXIT_FAILURE;
+    }
 
     std::vector<std::unique_ptr<UWaveServer::Database::ReadOnlyClient>> clients;
-    auto client = std::make_unique<UWaveServer::Database::ReadOnlyClient> (databaseCredentials, customLogger.logger);
-    clients.push_back(std::move(client));
+    try
+    {
+        if (programOptions.databaseSchemas.empty())
+        {
+            SPDLOG_LOGGER_INFO(customLogger.logger,
+                               "Initializing database client");
+            auto client
+                = std::make_unique<UWaveServer::Database::ReadOnlyClient>
+                  (databaseCredentials, customLogger.logger);
+            clients.push_back(std::move(client));
+        }
+        else
+        {
+            for (const auto &schema : programOptions.databaseSchemas)
+            {
+                SPDLOG_LOGGER_INFO(customLogger.logger,
+                                   "Initializing database client for schema {}",
+                                   schema);
+                databaseCredentials.setSchema(schema);
+                auto client
+                    = std::make_unique<UWaveServer::Database::ReadOnlyClient>
+                      (databaseCredentials, customLogger.logger);
+                clients.push_back(std::move(client));
+            }
+        }
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_CRITICAL(customLogger.logger,
+                               "Failed to create database client because {}",
+                               std::string {e.what()});
+        return EXIT_FAILURE;
+    } 
+#ifndef NDEBUG
+    assert(!clients.empty());
+#endif
 
     crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
@@ -682,9 +757,9 @@ int main(int argc, char *argv[])
                                              checkCacheOnly))
                         {
                             packets
-                               = client->query(network, station,
-                                               channel, locationCode,
-                                               startTime, endTime);
+                                = client->query(network, station,
+                                                channel, locationCode,
+                                                startTime, endTime);
                         }
                     }
                     else
@@ -692,9 +767,9 @@ int main(int argc, char *argv[])
                         // This will actually search the sensors table and
                         // potentially add the sensor to the cache
                         packets
-                             = client->query(network, station,
-                                             channel, locationCode,
-                                             startTime, endTime);
+                            = client->query(network, station,
+                                            channel, locationCode,
+                                            startTime, endTime);
                     }
                 }
                 if (!packets.empty()){break;}
@@ -867,6 +942,36 @@ std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
     return result;
 }
 
+[[nodiscard]]
+std::pair<std::chrono::milliseconds, std::chrono::milliseconds>
+getOTelMetricsIntervalAndTimeOut(
+    boost::property_tree::ptree &propertyTree,
+    const std::string &section,
+    const std::chrono::milliseconds &defaultExportInterval,
+    const std::chrono::milliseconds &defaultExportTimeOut)
+{
+    int64_t exportInterval = defaultExportInterval.count();
+    exportInterval
+        = propertyTree.get<int64_t> (
+            section + ".exportIntervalInMilliSeconds",
+            exportInterval);
+    if (exportInterval <= 0)
+    {    
+        throw std::runtime_error("Export interval must be positive");
+    }    
+    int64_t exportTimeOut = defaultExportTimeOut.count();
+    exportTimeOut
+        = propertyTree.get<int64_t> (
+            section + ".exportTimeOutInMilliSeconds",
+            exportTimeOut);
+    if (exportTimeOut <= 0)
+    {    
+        throw std::invalid_argument("Export time out must be positive");
+    }    
+    return std::pair {std::chrono::milliseconds {exportInterval},
+                      std::chrono::milliseconds {exportTimeOut}};
+}
+
 ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
 {
     ::ProgramOptions options;
@@ -900,47 +1005,126 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
 */
 
     // Logging
-    UWaveServer::OTelHTTPLogOptions logOptions;
-    logOptions.url
-         = getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
-    logOptions.suffix
-         = propertyTree.get<std::string>
-           ("OTelHTTPLogOptions.suffix", "/v1/logs");
-    if (!logOptions.url.empty())
+    options.exportLogs = false;
+    if (propertyTree.get_optional<std::string> ("OTelHTTPLogOptions"))
     {    
-        if (!logOptions.suffix.empty())
-        {
-            if (!logOptions.url.ends_with("/") &&
-                !logOptions.suffix.starts_with("/"))
+        UWaveServer::OTelHTTPLogOptions logOptions;
+        logOptions.url
+            = getOTelCollectorURL(propertyTree, "OTelHTTPLogOptions");
+        logOptions.suffix
+            = propertyTree.get<std::string>
+              ("OTelHTTPLogOptions.suffix", "/v1/logs");
+        if (!logOptions.url.empty())
+        {    
+            if (!logOptions.suffix.empty())
             {
-                logOptions.suffix = "/" + logOptions.suffix;
+                if (!logOptions.url.ends_with("/") &&
+                    !logOptions.suffix.starts_with("/"))
+                {
+                    logOptions.suffix = "/" + logOptions.suffix;
+                }
+            }
+        }    
+        if (!logOptions.url.empty())
+        {    
+            options.exportLogs = true;
+            options.otelHTTPLogOptions = logOptions;
+        }    
+    }
+    else if (propertyTree.get_optional<std::string> ("OTelGRPCLogOptions"))
+    {    
+#ifndef WITH_OTLP_GRPC
+        throw std::runtime_error(
+            "Recompile with Conan to use gRPC logs exporter option");
+#endif
+        UWaveServer::OTelGRPCLogOptions logOptions;
+        logOptions.url
+            = ::getOTelCollectorURL(propertyTree, "OTelGRPCLogOptions");
+        auto certificatePath
+            = propertyTree.get_optional<std::string>
+              ("OTelGRPCLogOptions.certificate");
+        if (certificatePath)
+        {
+            if (std::filesystem::exists(*certificatePath))
+            {
+                logOptions.certificatePath = *certificatePath;
             }
         }
-    }    
-    if (!logOptions.url.empty())
-    {    
-        options.exportLogs = true;
-        options.otelHTTPLogOptions = logOptions;
-    }    
+        if (!logOptions.url.empty())
+        {
+            options.exportLogs = true;
+            options.exportHTTPLogs = false;
+            options.otelGRPCLogOptions = logOptions;
+        }
+    }
 
     // Metrics
-    UWaveServer::OTelHTTPMetricsOptions metricsOptions;
-    metricsOptions.url
-         = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
-    metricsOptions.suffix
-         = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
-                                          "/v1/metrics");
-    if (!metricsOptions.url.empty())
-    {    
-        if (!metricsOptions.suffix.empty())
-        {
-            if (!metricsOptions.url.ends_with("/") &&
-                !metricsOptions.suffix.starts_with("/"))
+    options.exportMetrics = false;
+    if (propertyTree.get_optional<std::string> ("OTelHTTPMetricsOptions"))
+    {
+        UWaveServer::OTelHTTPMetricsOptions metricsOptions;
+        metricsOptions.url
+             = getOTelCollectorURL(propertyTree, "OTelHTTPMetricsOptions");
+        metricsOptions.suffix
+             = propertyTree.get<std::string> ("OTelHTTPMetricsOptions.suffix",
+                                              "/v1/metrics");
+        if (!metricsOptions.url.empty())
+        {    
+            if (!metricsOptions.suffix.empty())
             {
-                metricsOptions.suffix = "/" + metricsOptions.suffix;
+                if (!metricsOptions.url.ends_with("/") &&
+                    !metricsOptions.suffix.starts_with("/"))
+                {
+                    metricsOptions.suffix = "/" + metricsOptions.suffix;
+                }
             }
         }
+        auto [exportInterval, exportTimeOut]
+            = ::getOTelMetricsIntervalAndTimeOut(
+                  propertyTree,
+                  "OTelHTTPMetricsOptions",
+                  metricsOptions.exportInterval,
+                  metricsOptions.exportTimeOut);
+        metricsOptions.exportInterval = exportInterval;
+        metricsOptions.exportTimeOut = exportTimeOut;
+        options.otelHTTPMetricsOptions = metricsOptions;
+        options.exportMetrics = true;
+        options.exportHTTPMetrics = true;
     }    
+    else if (propertyTree.get_optional<std::string> ("OTelGRPCMetricsOptions"))
+    {    
+#ifndef WITH_OTLP_GRPC
+        throw std::runtime_error(
+            "Recompile with Conan to use gRPC metrics exporter option");
+#endif
+        UWaveServer::OTelGRPCMetricsOptions metricsOptions;
+        metricsOptions.url
+            = getOTelCollectorURL(propertyTree, "OTelGRPCMetricsOptions");
+        auto [exportInterval, exportTimeOut]
+            = ::getOTelMetricsIntervalAndTimeOut(
+                  propertyTree,
+                  "OTelGRPCMetricsOptions",
+                  metricsOptions.exportInterval,
+                  metricsOptions.exportTimeOut);
+        metricsOptions.exportInterval = exportInterval;
+        metricsOptions.exportTimeOut = exportTimeOut;
+        auto certificatePath
+            = propertyTree.get_optional<std::string>
+              ("OTelGRPCMetricsOptions.certificate");
+        if (certificatePath)
+        {
+            if (std::filesystem::exists(*certificatePath))
+            {
+                metricsOptions.certificatePath = *certificatePath;
+            }
+        }
+        if (!metricsOptions.url.empty())
+        {
+            options.otelGRPCMetricsOptions = metricsOptions;
+            options.exportMetrics = true;
+            options.exportHTTPMetrics = false; 
+        }
+    }
 
     // Crow options
 
@@ -975,6 +1159,26 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
     }
     options.databasePort
         = propertyTree.get<uint16_t> ("Database.port", options.databasePort);
+    for (int i = 1; i < std::numeric_limits<int16_t>::max(); ++i)
+    {
+        auto keyName = "Database.schema_" + std::to_string(i);
+        auto schema = propertyTree.get_optional<std::string> (keyName);
+        if (schema)
+        {
+            if (!options.databaseSchemas.contains(*schema))
+            {
+                options.databaseSchemas.insert(*schema);
+            }
+            else
+            {
+                spdlog::warn("Schema " + *schema + " already exists; skipping");
+            }
+        }
+        else
+        {
+            break;
+        }
+    }
 
     return options;
 }
