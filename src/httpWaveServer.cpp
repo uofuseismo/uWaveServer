@@ -1127,6 +1127,17 @@ ProgramOptions parseIniFile(const std::filesystem::path &iniFile)
     }
 
     // Crow options
+    options.crowServerName
+        = propertyTree.get<std::string>
+          ("Crow.serverName", options.crowServerName);
+    options.crowBindAddress
+        = propertyTree.get<std::string> ("Crow.address", options.crowBindAddress);
+    if (options.crowBindAddress.empty())
+    {
+        throw std::invalid_argument("Crow bind address cannot be empty");
+    }
+    options.crowPort
+        = propertyTree.get<uint16_t> ("Crow.port", options.crowPort);
 
     // Database
     options.databaseUser

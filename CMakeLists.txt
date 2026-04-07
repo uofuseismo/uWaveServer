@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(uWaveServer VERSION 0.4.3 LANGUAGES CXX)
+project(uWaveServer VERSION 0.4.4 LANGUAGES CXX)
 enable_testing()
 include(FetchContent)
 
