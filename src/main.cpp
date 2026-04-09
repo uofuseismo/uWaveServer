@@ -1179,17 +1179,20 @@ UWaveServer::ProgramOptions parseIniFile(const std::string &iniFile)
                 }
             }
         }   
-        auto [exportInterval, exportTimeOut]
-            = ::getOTelMetricsIntervalAndTimeOut(
-                  propertyTree,
-                  "OTelHTTPMetricsOptions",
-                  metricsOptions.exportInterval,
-                  metricsOptions.exportTimeOut);
-        metricsOptions.exportInterval = exportInterval;
-        metricsOptions.exportTimeOut = exportTimeOut;
-        options.otelHTTPMetricsOptions = metricsOptions;
-        options.exportMetrics = true;
-        options.exportHTTPMetrics = true;
+        if (!metricsOptions.url.empty())
+        {
+            auto [exportInterval, exportTimeOut]
+                = ::getOTelMetricsIntervalAndTimeOut(
+                      propertyTree,
+                      "OTelHTTPMetricsOptions",
+                      metricsOptions.exportInterval,
+                      metricsOptions.exportTimeOut);
+            metricsOptions.exportInterval = exportInterval;
+            metricsOptions.exportTimeOut = exportTimeOut;
+            options.otelHTTPMetricsOptions = metricsOptions;
+            options.exportMetrics = true;
+            options.exportHTTPMetrics = true;
+        }
     }
     else if (propertyTree.get_optional<std::string> ("OTelGRPCMetricsOptions"))
     {
