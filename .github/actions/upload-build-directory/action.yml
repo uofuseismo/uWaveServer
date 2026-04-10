@@ -1,5 +1,5 @@
 name: upload-build-directory
-description: packs build directory with the tar command to preserve file permissions and uploads the archive
+description: Packs build directory with the tar command to preserve file permissions and uploads the archive
 runs:
   using: "composite"
   steps:
