@@ -984,9 +984,9 @@ std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
                                 const std::string &section)
 {
     std::string result;
-    std::string otelCollectorHost
+    const std::string otelCollectorHost
         = propertyTree.get<std::string> (section + ".host", "");
-    uint16_t otelCollectorPort
+    const uint16_t otelCollectorPort
         = propertyTree.get<uint16_t> (section + ".port", 4218);
     if (!otelCollectorHost.empty())
     {   

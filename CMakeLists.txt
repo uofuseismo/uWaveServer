@@ -346,7 +346,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>)
    add_test(NAME unitTests 
-            COMMAND unitTests)
+            COMMAND $<TARGET_FILE:unitTests>)
    #if (${ZLIB_FOUND})
    #   message("Will test libz")
       #target_link_libraries(unitTests PRIVATE ZLIB::ZLIB)
