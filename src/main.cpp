@@ -26,6 +26,7 @@
 #include "uWaveServer/dataClient/streamSelector.hpp"
 #include "uWaveServer/database/writeClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
+#include "uWaveServer/database/exception.hpp"
 #include "private/threadSafeBoundedQueue.hpp"
 //#include "getEnvironmentVariable.hpp"
 //#include "writerMetrics.hpp"
@@ -505,6 +506,13 @@ public:
                         cumulativeTime = 0;
                         lastLogTime = nowSeconds;
                     }
+                }
+                catch (const UWaveServer::Database::ReconnectError &e)
+                {
+                    SPDLOG_LOGGER_CRITICAL(mLogger,
+                        "Reconnect error detected: {}",
+                        std::string {e.what()});
+                    throw std::runtime_error("Database connectivity is in question");
                 }
                 catch (const std::exception &e)
                 {

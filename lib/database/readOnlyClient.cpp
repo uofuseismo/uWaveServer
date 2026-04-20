@@ -3,6 +3,7 @@
 #include <bit>
 #include <limits>
 #include <algorithm>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <pqxx/pqxx>
 #include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
+#include "uWaveServer/database/exception.hpp"
 #include "uWaveServer/packet.hpp"
 #include "private/pack.hpp"
 #include "private/toName.hpp"
@@ -363,6 +365,7 @@ public:
         disconnect();
         {
         std::scoped_lock lock(mDatabaseMutex);
+        mShutdownRequested = false;
         mConnection
            = std::make_unique<pqxx::connection>
              (mCredentials.getConnectionString());
@@ -399,6 +402,8 @@ public:
     }
     void disconnect()
     {
+        mShutdownRequested = true;    
+        mShutdownCondition.notify_all();    
         std::scoped_lock lock(mDatabaseMutex);
         if (mConnection)
         {
@@ -408,13 +413,14 @@ public:
     }
     void reconnect()
     {
-        std::vector<std::chrono::seconds> reconnectSchedule
+        const std::vector<std::chrono::seconds> reconnectSchedule
         {
             std::chrono::seconds {0},
-            std::chrono::seconds {15},
-            std::chrono::seconds {60}
+            std::chrono::seconds {1},
+            std::chrono::seconds {5},
+            std::chrono::seconds {15}
         };
-        for (const auto &timeOut : reconnectSchedule)
+        for (int k = 0; k < static_cast<int> (reconnectSchedule.size()); ++k)
         {
             try
             {
@@ -427,17 +433,30 @@ public:
                                    "Connection attempt failed with {}",
                                    std::string {e.what()});
             }
-            SPDLOG_LOGGER_DEBUG(mLogger,
-                                "Will attempt to reconnect in {} seconds",
-                                mLogger.count());
-            std::this_thread::sleep_for(timeOut);
+            const auto timeOut = reconnectSchedule.at(k);
+            SPDLOG_LOGGER_INFO(mLogger,
+                               "Will attempt to reconnect in {} seconds (Try {} of {})",
+                               timeOut.count(),
+                               k + 1,
+                               static_cast<int> (reconnectSchedule.size()));
+            std::unique_lock<std::mutex> lock(mShutdownMutex);
+            mShutdownCondition.wait_for(lock, timeOut,
+                                        [this]
+                                        {
+                                            return mShutdownRequested;
+                                        });
+            lock.unlock();
+            //std::this_thread::sleep_for(timeOut);
         }
-        throw std::runtime_error("Failed to connect to database");
+        throw Database::ReconnectError("Failed to reconnect to database after " 
+                                     + std::to_string(reconnectSchedule.size())
+                                     + " attempts");
+        //throw std::runtime_error("Failed to reconnect to database");
     }
     [[nodiscard]] std::map<std::string, std::pair<int, std::string>> getStreams()
     {
         // Ensure we're connected
-        if (isConnected())
+        if (!isConnected())
         {
             SPDLOG_LOGGER_INFO(mLogger,
                          "Attempting to reconnect prior to getting streams...");
@@ -1005,13 +1024,16 @@ public:
     std::shared_ptr<spdlog::logger> mLogger{nullptr};    
     mutable std::mutex mDatabaseMutex;
     mutable std::mutex mMutex;
+    mutable std::mutex mShutdownMutex;
     mutable std::map<std::string, std::pair<int, std::string>>
          mStreamToIdentifierAndTableName;
     mutable std::unique_ptr<pqxx::connection> mConnection{nullptr};
+    std::condition_variable mShutdownCondition;
     std::chrono::seconds mRetentionDuration{365*86400}; // Make it something large like a year
     //    std::chrono::days mRetentionDuration{5};
     bool mAmReadOnly{true};
     bool mAmLittleEndian{std::endian::native == std::endian::little ? true : false};
+    bool mShutdownRequested{false};
 };
 
 /// Constructor

@@ -17,6 +17,7 @@
 #include <crow.h>
 #include "uWaveServer/database/readOnlyClient.hpp"
 #include "uWaveServer/database/credentials.hpp"
+#include "uWaveServer/database/exception.hpp"
 #include "uWaveServer/packet.hpp"
 #include "lib/private/toMiniSEED.hpp"
 #include "lib/private/toJSON.hpp"
