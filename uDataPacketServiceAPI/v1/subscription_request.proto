@@ -8,5 +8,5 @@ import "uDataPacketServiceAPI/v1/stream_identifier.proto";
  */
 message SubscriptionRequest {
     string identifier = 1 [default = ""]; /// A request identifier.
-    repeated StreamIdentifier selections = 5; /// The list of streams from which to receive data. 
+    repeated StreamIdentifier selections = 2; /// The list of streams from which to receive data. 
 }
