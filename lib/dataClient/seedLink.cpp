@@ -400,9 +400,9 @@ public:
             throw std::runtime_error("Failed to create client handle");
         }
         // Set the connection string
-        auto address = options.getAddress();
-        auto port = options.getPort();
-        auto seedLinkAddress = address +  ":" + std::to_string(port);
+        const auto host = options.getHost();
+        const auto port = options.getPort();
+        auto seedLinkAddress = host +  ":" + std::to_string(port);
         SPDLOG_LOGGER_INFO(mLogger, "Connecting to SEEDLink server {}...",
                            seedLinkAddress);
         if (sl_set_serveraddress(

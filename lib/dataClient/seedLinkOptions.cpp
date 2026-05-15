@@ -10,7 +10,7 @@ using namespace UWaveServer::DataClient;
 class SEEDLinkOptions::SEEDLinkOptionsImpl
 {
 public:
-    std::string mAddress{"rtserve.iris.washington.edu"};
+    std::string mHost{"rtserve.earthscope.org"};
     std::filesystem::path mStateFile;
     std::vector<StreamSelector> mSelectors;
     std::chrono::seconds mNetworkTimeOut{60};
@@ -55,16 +55,16 @@ SEEDLinkOptions& SEEDLinkOptions::operator=(SEEDLinkOptions &&options) noexcept
     return *this;
 }
 
-/// Address
-void SEEDLinkOptions::setAddress(const std::string &address)
+/// Host
+void SEEDLinkOptions::setHost(const std::string &host)
 {
-    if (address.empty()){throw std::invalid_argument("Address is empty");}
-    pImpl->mAddress = address;
+    if (host.empty()){throw std::invalid_argument("Host is empty");}
+    pImpl->mHost = host;
 }
 
-std::string SEEDLinkOptions::getAddress() const noexcept
+std::string SEEDLinkOptions::getHost() const noexcept
 {
-    return pImpl->mAddress;
+    return pImpl->mHost;
 }
 
 /// Port

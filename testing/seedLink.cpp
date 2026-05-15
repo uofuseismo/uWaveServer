@@ -43,7 +43,6 @@ TEST_CASE("UWaveServer::DataClient::StreamSelector",
     }
 }
 
-/*
 TEST_CASE("UWaveServer::DataClient:SEEDLinkOptions",
           "[clienOptions]")
 {
@@ -51,15 +50,16 @@ TEST_CASE("UWaveServer::DataClient:SEEDLinkOptions",
     UWS::SEEDLinkOptions clientOptions;
     SECTION("Defaults")
     {
-        REQUIRE(clientOptions.getHost() == "rtserve.iris.washington.edu");
+        REQUIRE(clientOptions.getHost() == "rtserve.earthscope.org");
         REQUIRE(clientOptions.getPort() == 18000);
         REQUIRE(clientOptions.getNetworkReconnectDelay() == std::chrono::seconds {30});
-        REQUIRE(clientOptions.getNetworkTimeOut() == std::chrono::seconds {300});
+        REQUIRE(clientOptions.getNetworkTimeOut() == std::chrono::seconds {60});
+/*
         REQUIRE(clientOptions.deleteStateFileOnStart() == false);
         REQUIRE(clientOptions.deleteStateFileOnStop() == false);
+*/
         REQUIRE(clientOptions.getStreamSelectors().empty() == true);
     }
-
     SECTION("Options")
     {
         const std::string host{"localhost"};
@@ -89,18 +89,22 @@ TEST_CASE("UWaveServer::DataClient:SEEDLinkOptions",
         clientOptions.setPort(port);
         clientOptions.setNetworkReconnectDelay(reconnectDelay);
         clientOptions.setNetworkTimeOut(networkTimeOut);
+/*
         clientOptions.enableDeleteStateFileOnStart();
         clientOptions.enableDeleteStateFileOnStop();
+*/
         for (const auto &s : selectors)
         {
-            REQUIRE(clientOptions.addStreamSelector(s));
+            REQUIRE_NOTHROW(clientOptions.addStreamSelector(s));
         }
         REQUIRE(clientOptions.getHost() == host);
         REQUIRE(clientOptions.getPort() == port);
         REQUIRE(clientOptions.getNetworkReconnectDelay() == reconnectDelay);
         REQUIRE(clientOptions.getNetworkTimeOut() == networkTimeOut);
+/*
         REQUIRE(clientOptions.deleteStateFileOnStart() == true);
         REQUIRE(clientOptions.deleteStateFileOnStop() == true);
+*/
         auto selectorsBack = clientOptions.getStreamSelectors();
         REQUIRE(selectorsBack.size() == 2);
         bool okay{true};
@@ -124,4 +128,3 @@ TEST_CASE("UWaveServer::DataClient:SEEDLinkOptions",
         REQUIRE(okay == true);
     }
 }
-*/

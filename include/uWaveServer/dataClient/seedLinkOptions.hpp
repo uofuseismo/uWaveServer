@@ -47,12 +47,12 @@ public:
     /// @name Properties
     /// @{
 
-    /// @brief Sets the address of the SEEDLink server.
-    /// @param[in] address  The IP address of the SEEDLink server.
-    void setAddress(const std::string &address);
+    /// @brief Sets the host of the SEEDLink server.
+    /// @param[in] hots  The host name or IP address of the SEEDLink server.
+    void setHost(const std::string &hots);
     /// @result The IP address of the SEEDLink server.  By default this is
     ///         rtserve.iris.washington.edu
-    [[nodiscard]] std::string getAddress() const noexcept;
+    [[nodiscard]] std::string getHost() const noexcept;
 
     /// @brief Sets the port number of the SEEDLink server.
     /// @param[in] port  The port of the server.

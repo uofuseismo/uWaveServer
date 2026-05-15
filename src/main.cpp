@@ -1039,9 +1039,19 @@ getSEEDLinkOptions(const boost::property_tree::ptree &propertyTree,
                    const std::string &clientName)
 {
     UWaveServer::DataClient::SEEDLinkOptions clientOptions;
-    auto address = propertyTree.get<std::string> (clientName + ".address");
+    auto host = propertyTree.get<std::string> (clientName + ".host", "");
+    if (host.empty())
+    {
+        auto address
+           = propertyTree.get_optional<std::string> (clientName + ".address");
+        if (address)
+        {
+            std::cerr << "Migrate to host instead of address for slink host\n";
+            host = *address;
+        }
+    }
     auto port = propertyTree.get<uint16_t> (clientName + ".port", 18000);
-    clientOptions.setAddress(address);
+    clientOptions.setHost(host);
     clientOptions.setPort(port);
     for (int iSelector = 1; iSelector <= 32768; ++iSelector)
     {
